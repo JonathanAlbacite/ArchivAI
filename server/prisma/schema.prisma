@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   // "teacher" or "student"
+  createdAt DateTime @default(now())
+
+  taughtRooms    Room[]            @relation("TeacherRooms")
+  enrolledRooms  RoomStudent[]
+  sessions       CampaignSession[]
+}
+
+model Room {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  roomCode    String   @unique
+  teacherId   Int
+  createdAt   DateTime @default(now())
+
+  teacher   User          @relation("TeacherRooms", fields: [teacherId], references: [id])
+  students  RoomStudent[]
+  campaigns Campaign[]
+}
+
+model RoomStudent {
+  id        Int      @id @default(autoincrement())
+  room      Room     @relation(fields: [roomId], references: [id])
+  roomId    Int
+  student   User     @relation(fields: [studentId], references: [id])
+  studentId Int
+  joinedAt  DateTime @default(now())
+
+  @@unique([roomId, studentId])
+}
+
+model Campaign {
+  id          Int      @id @default(autoincrement())
+  roomId      Int
+  title       String
+  description String?
+  scene       String   // "laboratory", "tomb", "library"
+  storyPath   String?
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  room     Room              @relation(fields: [roomId], references: [id])
+  clues    Clue[]
+  sessions CampaignSession[]
+}
+
+model Clue {
+  id          Int    @id @default(autoincrement())
+  campaignId  Int
+  orderNumber Int
+  question    String
+  answer      String
+
+  campaign Campaign        @relation(fields: [campaignId], references: [id])
+  attempts SessionAttempt[]
+}
+
+model CampaignSession {
+  id          Int       @id @default(autoincrement())
+  campaignId  Int
+  studentId   Int
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  totalTime   Int?      // in seconds
+  rank        String?
+
+  campaign Campaign        @relation(fields: [campaignId], references: [id])
+  student  User            @relation(fields: [studentId], references: [id])
+  attempts SessionAttempt[]
+}
+
+model SessionAttempt {
+  id        Int     @id @default(autoincrement())
+  sessionId Int
+  clueId    Int
+  attempts  Int     @default(0)
+  isSolved  Boolean @default(false)
+
+  session CampaignSession @relation(fields: [sessionId], references: [id])
+  clue    Clue            @relation(fields: [clueId], references: [id])
+}
