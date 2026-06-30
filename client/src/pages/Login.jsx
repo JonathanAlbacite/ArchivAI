@@ -66,7 +66,7 @@ function Login() {
           width: "400px",
         }}
       >
-        <h1 style={{ textAlign: "center", color: "#4a3424" }}>LOGIN</h1>
+        <h1 style={{ textAlign: "center", color: "#4a3424" }}>WELCOME BACK</h1>
 
         <form onSubmit={handleLogin} autoComplete="off">
           <label style={{ display: "block", marginTop: "20px", color: "#4a3424", fontWeight: "bold" }}>
