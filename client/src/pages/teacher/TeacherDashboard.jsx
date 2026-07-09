@@ -2,6 +2,7 @@ import React from 'react'
 import Navbar from '../../components/Navbar'
 import dashboard_bg from '../../assets/dashboard_bg.png'
 import { useState, useEffect } from 'react'
+import { useNavigate } from "react-router-dom";
 
 function TeacherDashboard() {
 
@@ -9,6 +10,7 @@ function TeacherDashboard() {
   const [roomName, setRoomName] = useState("")
   const [roomDescription, setRoomDescription] = useState("")
   const [rooms, setRooms] = useState([])
+  const navigate = useNavigate();
 
   // Fetch rooms from API
   const fetchRooms = async () => {
@@ -90,7 +92,7 @@ function TeacherDashboard() {
 
               {/* Existing room cards */}
               {rooms.map((room) => (
-  <div key={room.id} style={{ backgroundColor: "#FFF9EF", borderRadius: "24px", border: "1px solid #E7DCC7", padding: "24px", minHeight: "200px", display: "flex", flexDirection: "column", justifyContent: "space-between", boxShadow: "0 10px 30px rgba(0,0,0,0.15)" }}>
+            <div key={room.id} style={{ backgroundColor: "#FFF9EF", borderRadius: "24px", border: "1px solid #E7DCC7", padding: "24px", minHeight: "200px", display: "flex", flexDirection: "column", justifyContent: "space-between", boxShadow: "0 10px 30px rgba(0,0,0,0.15)" }}>
 
     {/* Room info */}
     <div>
@@ -100,7 +102,8 @@ function TeacherDashboard() {
     </div>
 
     {/* Enter room button */}
-    <button style={{ width: "100%", padding: "10px", backgroundColor: "#A95B2C", color: "white", border: "none", borderRadius: "18px", fontFamily: "Poppins, sans-serif", fontWeight: "600", fontSize: "14px", cursor: "pointer", marginTop: "16px" }}>
+    <button onClick={() => navigate(`/teacher/room/${room.id}`)}
+    style={{ width: "100%", padding: "10px", backgroundColor: "#A95B2C", color: "white", border: "none", borderRadius: "18px", fontFamily: "Poppins, sans-serif", fontWeight: "600", fontSize: "14px", cursor: "pointer", marginTop: "16px" }}>
       Enter Room →
     </button>
 
