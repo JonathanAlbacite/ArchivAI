@@ -4,6 +4,7 @@ import Register from "./pages/Register";
 import TeacherDashboard from "./pages/teacher/TeacherDashboard";
 import RoomPage from "./pages/teacher/RoomPage";
 import StudentDashboard from "./pages/student/StudentDashboard";
+import StudentRoomPage from "./pages/student/StudentRoomPage";
 
 function App() {
   return (
@@ -14,7 +15,7 @@ function App() {
         <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
         <Route path="/teacher/room/:id" element={<RoomPage />} />
         <Route path="/student/dashboard" element={<StudentDashboard />} />
-        <Route path="/student/room/:id" element={<StudentDashboard />} />
+        <Route path="/student/room/:id" element={<StudentRoomPage />} />
       </Routes>
     </BrowserRouter>
   );
