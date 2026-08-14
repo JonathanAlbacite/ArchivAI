@@ -49,7 +49,7 @@ model Campaign {
   roomId      Int
   title       String
   description String?
-  scene       String   // "laboratory", "tomb", "library"
+  scene String? // "laboratory", "tomb", "library"
   storyPath   String?
   isPublished Boolean  @default(false)
   createdAt   DateTime @default(now())
