@@ -77,7 +77,8 @@ router.get("/", protect, async (req, res) => {
 });
 
 // Teacher: Get single room with students and campaigns
-router.get("/:id", protect, teacherOnly, async (req, res) => {
+// Student: Get single room if enrolled
+router.get("/:id", protect, async (req, res) => {
   try {
     const room = await prisma.room.findUnique({
       where: { id: parseInt(req.params.id) },
@@ -92,8 +93,18 @@ router.get("/:id", protect, teacherOnly, async (req, res) => {
     });
 
     if (!room) return res.status(404).json({ message: "Room not found" });
-    if (room.teacherId !== req.user.id)
+
+    if (req.user.role === "TEACHER") {
+      if (room.teacherId !== req.user.id)
+        return res.status(403).json({ message: "Access denied" });
+    } else if (req.user.role === "STUDENT") {
+      const enrolled = await prisma.roomStudent.findFirst({
+        where: { roomId: room.id, studentId: req.user.id },
+      });
+      if (!enrolled) return res.status(403).json({ message: "Access denied" });
+    } else {
       return res.status(403).json({ message: "Access denied" });
+    }
 
     res.json(room);
   } catch (err) {

@@ -49,7 +49,7 @@ function StudentRoomPage() {
         const sceneMeta = getSceneMeta(activeCampaign.scene)
         return (
             <div style={{ position: "fixed", inset: 0, backgroundColor: colors.obsidianDeep, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
-                <div style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 40%, ${sceneMeta.color}33, transparent 60%)` }} />
+                <div style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 40%, ${sceneMeta.color}33, transparent 60%)`, pointerEvents: "none" }} />
 
                 <sceneMeta.Icon size={54} color={sceneMeta.color} />
                 <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "28px", color: colors.softGold, margin: "20px 0 6px 0", textAlign: "center" }}>

@@ -50,3 +50,47 @@ body {
   from { transform: scale(0.85) rotateX(-8deg); opacity: 0; }
   to { transform: scale(1) rotateX(0deg); opacity: 1; }
 }
+
+/* Spellbook (SpellBookModal) */
+@keyframes spellbookOpen {
+  0% { transform: scale(0.7) rotateY(-35deg); opacity: 0; }
+  60% { transform: scale(1.02) rotateY(4deg); opacity: 1; }
+  100% { transform: scale(1) rotateY(0deg); opacity: 1; }
+}
+
+@keyframes spellbookClose {
+  0% { transform: scale(1) rotateY(0deg); opacity: 1; }
+  100% { transform: scale(0.6) rotateY(50deg); opacity: 0; }
+}
+
+/* Worn parchment corner on every book page */
+.sb-page::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 50px;
+  height: 50px;
+  background: radial-gradient(circle at 0% 0%, rgba(110, 80, 40, 0.16), transparent 70%);
+  pointer-events: none;
+}
+
+/* Curled/lifted bottom-right corner, doubles as the click-to-flip target */
+.sb-dogear {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  background:
+    linear-gradient(135deg, transparent 45%, rgba(0, 0, 0, 0.18) 46%, rgba(0, 0, 0, 0.05) 60%, transparent 62%),
+    radial-gradient(circle at 100% 100%, #d8c599, #c3ac78 55%, transparent 75%);
+  box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.12);
+  transition: filter 0.15s, transform 0.15s;
+}
+.sb-dogear:hover {
+  filter: brightness(1.1);
+  transform: scale(1.08);
+}

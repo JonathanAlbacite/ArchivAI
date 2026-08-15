@@ -20,6 +20,19 @@ function StudentDashboard() {
             headers: { "Authorization": `Bearer ${token}` }
         })
         const data = await res.json()
+
+        if (!res.ok) {
+            if (res.status === 401) {
+                localStorage.removeItem("token")
+                localStorage.removeItem("role")
+                localStorage.removeItem("name")
+                navigate("/")
+                return
+            }
+            alert(data.message)
+            return
+        }
+
         setRooms(data)
     }
 
