@@ -39,6 +39,16 @@ export const colors = {
   draft: "#8A6D3B",
   draftBg: "#F1E4C6",
   danger: "#7A2E2E",
+
+  // "Enchanted glass" — translucent, blurred surfaces (paired with
+  // backdrop-filter: blur(...)) for a themed glassmorphism treatment, e.g.
+  // the teacher chat widget. Kept high-opacity where real text sits on top
+  // (glassParchment) so legibility never trades off against the effect.
+  glassDark: "rgba(18, 13, 8, 0.72)",
+  glassParchment: "rgba(243, 233, 215, 0.9)",
+  glassParchmentBright: "rgba(255, 249, 239, 0.88)",
+  glassBorder: "rgba(217, 184, 114, 0.35)",
+  glassGlow: "rgba(224, 138, 60, 0.45)",
 };
 
 export const fonts = {
