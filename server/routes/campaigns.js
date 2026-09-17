@@ -79,6 +79,113 @@ router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
   }
 });
 
+// Teacher: Replace a draft campaign's entire clue set in one shot (as
+// opposed to POST above, which only appends). Used by the full campaign
+// editor, which treats clues as a whole page list a teacher can reorder,
+// edit, or remove — not something to incrementally append to. Only allowed
+// while unpublished: since publishing is one-way, an unpublished campaign
+// can never have real student attempts recorded against its clues yet, so
+// deleting and recreating them is always safe.
+router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+  const { clues } = req.body;
+
+  if (!Array.isArray(clues))
+    return res.status(400).json({ message: "clues must be an array" });
+  if (clues.some((c) => !c.question || !c.answer))
+    return res.status(400).json({ message: "Each clue needs a question and answer" });
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+    if (campaign.room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+    if (campaign.isPublished)
+      return res.status(400).json({ message: "Published campaigns can't be edited" });
+
+    await prisma.clue.deleteMany({ where: { campaignId } });
+
+    if (clues.length > 0) {
+      await prisma.clue.createMany({
+        data: clues.map((c, i) => ({
+          campaignId,
+          orderNumber: i + 1,
+          question: c.question,
+          answer: c.answer,
+        })),
+      });
+    }
+
+    const allClues = await prisma.clue.findMany({
+      where: { campaignId },
+      orderBy: { orderNumber: "asc" },
+    });
+
+    res.json(allClues);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: Edit a campaign's title/description/scene — only while it's
+// still a draft. Once published, students may already be relying on it, so
+// it's locked; unpublish isn't supported, so publishing is a one-way step.
+router.patch("/campaigns/:id", protect, teacherOnly, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+  const { title, description, scene } = req.body;
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+    if (campaign.room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+    if (campaign.isPublished)
+      return res.status(400).json({ message: "Published campaigns can't be edited" });
+
+    const updated = await prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        ...(title !== undefined && { title }),
+        ...(description !== undefined && { description }),
+        ...(scene !== undefined && { scene }),
+      },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: Delete a campaign, along with its clues, play sessions, and
+// session attempts (all RESTRICT foreign keys, so children must go first).
+router.delete("/campaigns/:id", protect, teacherOnly, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+    if (campaign.room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+
+    const clueIds = (await prisma.clue.findMany({ where: { campaignId }, select: { id: true } })).map((c) => c.id);
+    const sessionIds = (
+      await prisma.campaignSession.findMany({ where: { campaignId }, select: { id: true } })
+    ).map((s) => s.id);
+
+    await prisma.sessionAttempt.deleteMany({
+      where: { OR: [{ clueId: { in: clueIds } }, { sessionId: { in: sessionIds } }] },
+    });
+    await prisma.campaignSession.deleteMany({ where: { campaignId } });
+    await prisma.clue.deleteMany({ where: { campaignId } });
+    await prisma.campaign.delete({ where: { id: campaignId } });
+
+    res.json({ message: "Campaign deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 // Teacher: Publish a campaign
 router.patch("/campaigns/:id/publish", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);

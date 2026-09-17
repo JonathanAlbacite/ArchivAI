@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { UserPlus, Trash2, BookOpen, Sparkles } from 'lucide-react'
+import { UserPlus, Trash2, BookOpen, Sparkles, Pencil } from 'lucide-react'
 import dashboard_bg from '../../assets/dashboard_bg.png'
 import Navbar from '../../components/Navbar'
 import EmberField from '../../components/EmberField'
@@ -17,6 +17,8 @@ function RoomPage() {
     const [studentEmail, setStudentEmail] = useState("")
     const [showCreateCampaign, setShowCreateCampaign] = useState(false)
     const [openCampaignId, setOpenCampaignId] = useState(null)
+    const [editingCampaign, setEditingCampaign] = useState(null)
+    const [loadingEditId, setLoadingEditId] = useState(null)
     const navigate = useNavigate()
 
     const fetchRoom = async () => {
@@ -86,6 +88,63 @@ function RoomPage() {
     }
 }
 
+    const handleDeleteCampaign = async (campaignId, title) => {
+    if (!confirm(`Delete "${title}"? This also deletes all its clues and any student play history. This can't be undone.`)) return
+
+    const token = localStorage.getItem("token")
+
+    try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${campaignId}`, {
+            method: "DELETE",
+            headers: { "Authorization": `Bearer ${token}` }
+        })
+
+        const data = await res.json()
+
+        if (!res.ok) {
+            alert(data.message)
+            return
+        }
+
+        setRoom(prev => ({
+            ...prev,
+            campaigns: prev.campaigns.filter(c => c.id !== campaignId)
+        }))
+
+    } catch (err) {
+        console.error(err)
+        alert("Something went wrong.")
+    }
+}
+
+    // The room's campaign list (from GET /api/rooms/:id) doesn't include
+    // clues, so editing needs a fresh fetch of the full campaign first —
+    // same endpoint CampaignBookViewer uses, which already returns clues
+    // (with answers) for the owning teacher.
+    const openEditCampaign = async (campaignId) => {
+        const token = localStorage.getItem("token")
+        setLoadingEditId(campaignId)
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${campaignId}`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
+            const data = await res.json()
+
+            if (!res.ok) {
+                alert(data.message)
+                return
+            }
+
+            setEditingCampaign(data)
+        } catch (err) {
+            console.error(err)
+            alert("Something went wrong.")
+        } finally {
+            setLoadingEditId(null)
+        }
+    }
+
     return (
         <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
 
@@ -103,7 +162,7 @@ function RoomPage() {
 
                         {/* Breadcrumb */}
                         <p onClick={() => navigate("/teacher/dashboard")} style={{ cursor: "pointer", color: colors.brass, fontFamily: fonts.body, fontSize: "14px", marginBottom: "16px" }}>
-                            Vaults &gt; {room ? room.name : ""}
+                            Rooms &gt; {room ? room.name : ""}
                         </p>
 
                         {/* Room header */}
@@ -120,7 +179,7 @@ function RoomPage() {
 
                                 {/* Students header */}
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                                    <h2 style={{ fontFamily: fonts.display, color: colors.brassBright, margin: 0, fontSize: "18px" }}>Roster Scroll</h2>
+                                    <h2 style={{ fontFamily: fonts.display, color: colors.brassBright, margin: 0, fontSize: "18px" }}>Students</h2>
                                     <button onClick={() => setShowAddStudent(true)} style={{ display: "flex", alignItems: "center", gap: "6px", background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`, color: "white", border: "none", borderRadius: "18px", padding: "8px 16px", fontFamily: fonts.body, fontWeight: "600", fontSize: "13px", cursor: "pointer" }}>
                                         <UserPlus size={14} /> Add Student
                                     </button>
@@ -157,7 +216,7 @@ function RoomPage() {
                             {/* Campaigns section */}
                             <div style={{ flex: 1, background: "rgba(255,255,255,0.03)", borderRadius: "24px", padding: "24px", border: `1px solid ${colors.vaultBorder}` }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                                    <h2 style={{ fontFamily: fonts.display, color: colors.brassBright, margin: 0, fontSize: "18px" }}>Spellbook Shelf</h2>
+                                    <h2 style={{ fontFamily: fonts.display, color: colors.brassBright, margin: 0, fontSize: "18px" }}>Campaigns</h2>
                                     <button onClick={() => setShowCreateCampaign(true)} style={{ display: "flex", alignItems: "center", gap: "6px", background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`, color: "white", border: "none", borderRadius: "18px", padding: "8px 16px", fontFamily: fonts.body, fontWeight: "600", fontSize: "13px", cursor: "pointer", animation: "glowPulse 3s ease-in-out infinite" }}>
                                         <Sparkles size={14} /> Create Campaign
                                     </button>
@@ -177,18 +236,37 @@ function RoomPage() {
                                             <div style={{ flex: 1 }}>
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
                                                     <p style={{ fontFamily: fonts.display, fontWeight: "600", fontSize: "15px", color: colors.brassBright, margin: 0 }}>{c.title}</p>
-                                                    <span style={{
-                                                        fontFamily: fonts.body,
-                                                        fontSize: "11px",
-                                                        fontWeight: "600",
-                                                        padding: "2px 10px",
-                                                        borderRadius: "10px",
-                                                        color: c.isPublished ? colors.success : colors.draft,
-                                                        backgroundColor: c.isPublished ? colors.successBg : colors.draftBg,
-                                                        whiteSpace: "nowrap",
-                                                    }}>
-                                                        {c.isPublished ? "Published" : "Draft"}
-                                                    </span>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                                                        <span style={{
+                                                            fontFamily: fonts.body,
+                                                            fontSize: "11px",
+                                                            fontWeight: "600",
+                                                            padding: "2px 10px",
+                                                            borderRadius: "10px",
+                                                            color: c.isPublished ? colors.success : colors.draft,
+                                                            backgroundColor: c.isPublished ? colors.successBg : colors.draftBg,
+                                                            whiteSpace: "nowrap",
+                                                        }}>
+                                                            {c.isPublished ? "Published" : "Draft"}
+                                                        </span>
+                                                        {!c.isPublished && (
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); openEditCampaign(c.id) }}
+                                                                disabled={loadingEditId === c.id}
+                                                                title="Edit campaign"
+                                                                style={{ background: "none", border: "none", cursor: loadingEditId === c.id ? "default" : "pointer", color: colors.inkMuted, display: "flex", opacity: loadingEditId === c.id ? 0.5 : 1 }}
+                                                            >
+                                                                <Pencil size={14} color="#C9BBA6" />
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteCampaign(c.id, c.title) }}
+                                                            title="Delete campaign"
+                                                            style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex" }}
+                                                        >
+                                                            <Trash2 size={14} color="#C9BBA6" />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                                 <div style={{ marginTop: "6px" }}>
                                                     <SceneBadge scene={c.scene} />
@@ -207,11 +285,12 @@ function RoomPage() {
                 </div>
             </div>
 
-            {showCreateCampaign && (
+            {(showCreateCampaign || editingCampaign) && (
                 <SpellBookModal
                     roomId={id}
-                    onClose={() => setShowCreateCampaign(false)}
-                    onCreated={fetchRoom}
+                    campaign={editingCampaign}
+                    onClose={() => { setShowCreateCampaign(false); setEditingCampaign(null) }}
+                    onSaved={fetchRoom}
                 />
             )}
 
