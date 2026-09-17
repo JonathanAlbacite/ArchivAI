@@ -46,6 +46,12 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Chat widget typing indicator (TeacherChatWidget) — three dots, staggered */
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
 @keyframes bookOpen {
   from { transform: scale(0.85) rotateX(-8deg); opacity: 0; }
   to { transform: scale(1) rotateX(0deg); opacity: 1; }
