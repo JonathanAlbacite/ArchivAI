@@ -5,7 +5,7 @@ import { User, LogOut, ChevronDown } from "lucide-react";
 import { colors, fonts } from "../theme";
 
 const ROLE_LABELS = {
-  TEACHER: "Keeper of the Vault",
+  TEACHER: "Teacher",
   STUDENT: "Archivist",
 };
 
