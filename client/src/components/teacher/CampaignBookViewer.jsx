@@ -41,7 +41,7 @@ function CampaignBookViewer({ campaignId, onClose }) {
   if (loading || !campaign) {
     return (
       <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(8,5,3,0.72)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}>
-        <p style={{ fontFamily: fonts.flourish, fontSize: "18px", color: colors.brassBright }}>Opening the tome...</p>
+        <p style={{ fontFamily: fonts.flourish, fontSize: "18px", color: colors.brassBright }}>Loading campaign...</p>
       </div>
     );
   }
@@ -83,7 +83,7 @@ function CampaignBookViewer({ campaignId, onClose }) {
   );
 
   const rightPage = clues.length === 0 ? (
-    <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted }}>No clues recorded in this tome yet.</p>
+    <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted }}>No clues added to this campaign yet.</p>
   ) : (
     <div>
       <p style={{ fontFamily: fonts.flourish, fontSize: "13px", color: colors.ember, letterSpacing: "1px", margin: "0 0 16px 0" }}>

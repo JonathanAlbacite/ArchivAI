@@ -132,9 +132,9 @@ function TeacherDashboard() {
               {/* Title and subtitle */}
               <div>
                 <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.brass }}>
-                  KEEPER'S HALL
+                  TEACHER DASHBOARD
                 </p>
-                <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "34px", color: colors.brassBright, margin: 0 }}>Your Vaults</h1>
+                <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "34px", color: colors.brassBright, margin: 0 }}>Your Rooms</h1>
                 <p style={{ color: "#C9BBA6", fontFamily: fonts.body, fontSize: "14px", margin: "6px 0 0 0" }}>Manage your rooms – each has its own students & campaigns.</p>
               </div>
 
@@ -209,7 +209,7 @@ function TeacherDashboard() {
                         transition: "background 0.25s, color 0.25s",
                       }}
                     >
-                      Enter Vault →
+                      Enter Room →
                     </button>
 
                   </div>
@@ -236,7 +236,7 @@ function TeacherDashboard() {
                 }}
               >
                 <Sparkles size={30} color={newCardHover ? colors.emberBright : colors.brass} />
-                <p style={{ fontFamily: fonts.display, fontWeight: "600", color: newCardHover ? colors.emberBright : colors.brass, margin: "10px 0 0 0" }}>NEW VAULT</p>
+                <p style={{ fontFamily: fonts.display, fontWeight: "600", color: newCardHover ? colors.emberBright : colors.brass, margin: "10px 0 0 0" }}>NEW ROOM</p>
                 <p style={{ fontFamily: fonts.body, fontSize: "12px", color: "#B9AC96", margin: "4px 0 0 0", textAlign: "center" }}>Start a new room for your students</p>
               </div>
 
@@ -258,7 +258,7 @@ function TeacherDashboard() {
                   }}
                 >
                   <div style={{ backgroundColor: colors.parchment, borderRadius: "22px", padding: "36px" }}>
-                    <h2 style={{ fontFamily: fonts.displayDecorative, color: colors.ink, margin: "0 0 20px 0", fontSize: "26px" }}>Create Vault</h2>
+                    <h2 style={{ fontFamily: fonts.displayDecorative, color: colors.ink, margin: "0 0 20px 0", fontSize: "26px" }}>Create Room</h2>
 
                     <form>
                       {/* Room name input */}

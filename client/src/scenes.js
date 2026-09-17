@@ -15,7 +15,7 @@ export function getSceneMeta(scene) {
   return (
     SCENE_LIST.find((s) => s.key === key) || {
       key: "",
-      label: scene || "Unknown Realm",
+      label: scene || "Unknown Scene",
       Icon: HelpCircle,
       color: colors.inkMuted,
       previewSrc: null,
