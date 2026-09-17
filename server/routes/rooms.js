@@ -1,42 +1,16 @@
 import express from "express";
 import prisma from "../lib/prisma.js";
+import { createRoomForTeacher } from "../lib/rooms.js";
 import { protect, teacherOnly, studentOnly } from "../middleware/auth.js";
 
 const router = express.Router();
-
-// Generate random room code
-const generateRoomCode = () => {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let code = "";
-  for (let i = 0; i < 8; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-};
 
 // Teacher: Create room
 router.post("/", protect, teacherOnly, async (req, res) => {
   const { name, description } = req.body;
 
   try {
-    let roomCode;
-    let exists = true;
-
-    while (exists) {
-      roomCode = generateRoomCode();
-      const found = await prisma.room.findUnique({ where: { roomCode } });
-      exists = !!found;
-    }
-
-    const room = await prisma.room.create({
-      data: {
-        name,
-        description,
-        roomCode,
-        teacherId: req.user.id,
-      },
-    });
-
+    const room = await createRoomForTeacher(req.user.id, { name, description });
     res.status(201).json(room);
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });

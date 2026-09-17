@@ -15,9 +15,11 @@ model User {
   role      String   // "teacher" or "student"
   createdAt DateTime @default(now())
 
-  taughtRooms    Room[]            @relation("TeacherRooms")
-  enrolledRooms  RoomStudent[]
-  sessions       CampaignSession[]
+  taughtRooms       Room[]             @relation("TeacherRooms")
+  enrolledRooms     RoomStudent[]
+  sessions          CampaignSession[]
+  lessonModules     LessonModule[]
+  chatConversations ChatConversation[]
 }
 
 model Room {
@@ -82,6 +84,56 @@ model CampaignSession {
   campaign Campaign        @relation(fields: [campaignId], references: [id])
   student  User            @relation(fields: [studentId], references: [id])
   attempts SessionAttempt[]
+}
+
+model LessonModule {
+  id               Int      @id @default(autoincrement())
+  teacherId        Int
+  title            String
+  originalFilename String
+  filePath         String
+  mimeType         String
+  extractedText    String?  @db.Text
+  status           String   @default("uploaded") // "uploaded" | "generated" | "failed"
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  teacher        User            @relation(fields: [teacherId], references: [id])
+  generatedClues GeneratedClue[]
+}
+
+model GeneratedClue {
+  id             Int      @id @default(autoincrement())
+  lessonModuleId Int
+  orderNumber    Int
+  clueText       String   @db.Text
+  answerText     String
+  scene          String   // "Laboratory" | "Library" | "Tomb"
+  status         String   @default("pending") // "pending" | "edited" | "approved" | "rejected"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  lessonModule LessonModule @relation(fields: [lessonModuleId], references: [id])
+}
+
+model ChatConversation {
+  id        Int      @id @default(autoincrement())
+  teacherId Int
+  createdAt DateTime @default(now())
+
+  teacher  User          @relation(fields: [teacherId], references: [id])
+  messages ChatMessage[]
+}
+
+model ChatMessage {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  role           String   // "user" | "model" | "function"
+  content        String   @db.Text
+  functionCall   Json?    // stores {name, args} when role is "model" and it's a tool call
+  createdAt      DateTime @default(now())
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id])
 }
 
 model SessionAttempt {
