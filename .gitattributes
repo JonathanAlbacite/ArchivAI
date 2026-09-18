@@ -1,0 +1,2 @@
+client/public/unitybuild/Build/*.wasm filter=lfs diff=lfs merge=lfs -text
+client/public/unitybuild/Build/*.data filter=lfs diff=lfs merge=lfs -text
