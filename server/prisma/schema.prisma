@@ -12,7 +12,7 @@ model User {
   name      String
   email     String   @unique
   password  String
-  role      String   // "teacher" or "student"
+  role      String   // "TEACHER", "STUDENT", or "ADMIN"
   createdAt DateTime @default(now())
 
   taughtRooms       Room[]             @relation("TeacherRooms")
@@ -30,9 +30,16 @@ model Room {
   teacherId   Int
   createdAt   DateTime @default(now())
 
+  // Which campaign in this room is currently "live" for Play - set by
+  // either the teacher or a student clicking Play, read by Unity (and
+  // the client) to know which campaign to load. Nullable since a room
+  // may have no active campaign yet.
+  activeCampaignId Int?
+  activeCampaign   Campaign?     @relation("RoomActiveCampaign", fields: [activeCampaignId], references: [id])
+
   teacher   User          @relation("TeacherRooms", fields: [teacherId], references: [id])
   students  RoomStudent[]
-  campaigns Campaign[]
+  campaigns Campaign[]    @relation("RoomCampaigns")
 }
 
 model RoomStudent {
@@ -56,20 +63,93 @@ model Campaign {
   isPublished Boolean  @default(false)
   createdAt   DateTime @default(now())
 
-  room     Room              @relation(fields: [roomId], references: [id])
+  room     Room              @relation("RoomCampaigns", fields: [roomId], references: [id])
   clues    Clue[]
   sessions CampaignSession[]
+
+  // Opposite side of Room.activeCampaign - rooms currently pointing at
+  // this campaign as their "live" one. A campaign can be the active
+  // campaign for more than one room at once, hence the array.
+  activeForRooms Room[] @relation("RoomActiveCampaign")
+}
+
+// Which Question/Clue/Answer/Note "pairing" shape a Clue was authored
+// as - drives how many answers it should have and how many of those
+// are marked correct. See ClueAnswer below for where the actual answer
+// options live. A campaign's clues must match, in order, the ClueType
+// sequence of its scene's published VaultTemplate - see TemplateSlot.
+//   NORMAL      - exactly 1 answer, marked correct. No decoys.
+//   MULTICHOICE - exactly 4 answers: 1 marked correct, 3 decoys.
+//   COMBO       - 1+ answers marked correct (a combination lock - the
+//                 player must pick every one), plus any number of
+//                 decoys. Both lists are extendable - no fixed count.
+enum ClueType {
+  NORMAL
+  MULTICHOICE
+  COMBO
 }
 
 model Clue {
-  id          Int    @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   campaignId  Int
   orderNumber Int
+  type        ClueType @default(NORMAL)
+  // Doubles as the in-game Clue text, not just what the lock asks - no
+  // separate clue/hint field. Note (below) stays fully independent of
+  // this.
   question    String
-  answer      String
+  // Free-text Note content shown in the Journal's Note panel.
+  note        String?
 
-  campaign Campaign        @relation(fields: [campaignId], references: [id])
+  campaign Campaign         @relation(fields: [campaignId], references: [id])
+  answers  ClueAnswer[]
   attempts SessionAttempt[]
+}
+
+// One answer OPTION for a Clue - correct or decoy. A flat, ordered list
+// per Clue rather than a single string column, so NORMAL/MULTICHOICE/
+// COMBO can all share the same shape: NORMAL has exactly one row
+// (isCorrect: true), MULTICHOICE has exactly four (one isCorrect: true,
+// three false), COMBO has any number of either. Mirrors Unity's own
+// CampaignEntry.AnswerOption list exactly, so CampaignAPIClient can map
+// this straight across.
+model ClueAnswer {
+  id        Int     @id @default(autoincrement())
+  clueId    Int
+  text      String
+  isCorrect Boolean @default(false)
+  // Preserves the order answers were entered/should be displayed in -
+  // findMany() calls elsewhere always orderBy this field.
+  order     Int     @default(0)
+
+  clue Clue @relation(fields: [clueId], references: [id], onDelete: Cascade)
+}
+
+// Admin-authored, per-scene question structure. Once published, this is
+// the fixed sequence of clue slots (see TemplateSlot) every campaign
+// created in that scene must follow - teachers fill in the content, they
+// don't choose the shape themselves. One row per scene ("Laboratory",
+// "Library", "Tomb" - matches VALID_SCENES in lessonModules.js).
+model VaultTemplate {
+  id          Int      @id @default(autoincrement())
+  scene       String   @unique
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  slots TemplateSlot[]
+}
+
+// One slot in a VaultTemplate's ordered structure - just a position and
+// a ClueType. No question/answer content lives here; that's authored per
+// campaign by the teacher, in the shape this slot dictates.
+model TemplateSlot {
+  id          Int      @id @default(autoincrement())
+  templateId  Int
+  orderNumber Int
+  type        ClueType
+
+  template VaultTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 }
 
 model CampaignSession {

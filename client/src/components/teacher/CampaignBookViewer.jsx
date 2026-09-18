@@ -82,19 +82,48 @@ function CampaignBookViewer({ campaignId, onClose }) {
     </div>
   );
 
+  const CLUE_TYPE_LABELS = { NORMAL: "Normal", MULTICHOICE: "MultiChoice", COMBO: "Combo" };
+
   const rightPage = clues.length === 0 ? (
     <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted }}>No clues added to this campaign yet.</p>
   ) : (
     <div>
-      <p style={{ fontFamily: fonts.flourish, fontSize: "13px", color: colors.ember, letterSpacing: "1px", margin: "0 0 16px 0" }}>
-        Clue {currentClue.orderNumber}
-      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 16px 0" }}>
+        <p style={{ fontFamily: fonts.flourish, fontSize: "13px", color: colors.ember, letterSpacing: "1px", margin: 0 }}>
+          Clue {currentClue.orderNumber}
+        </p>
+        <span style={{ fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: colors.inkMuted, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+          {CLUE_TYPE_LABELS[currentClue.type] || currentClue.type}
+        </span>
+      </div>
 
       <p style={{ fontFamily: fonts.body, fontSize: "13px", fontWeight: "600", color: colors.ink, margin: "0 0 6px 0" }}>Question</p>
       <p style={{ fontFamily: fonts.body, fontSize: "15px", color: colors.ink, margin: "0 0 22px 0", lineHeight: 1.5 }}>{currentClue.question}</p>
 
-      <p style={{ fontFamily: fonts.body, fontSize: "13px", fontWeight: "600", color: colors.ink, margin: "0 0 6px 0" }}>Answer</p>
-      <p style={{ fontFamily: fonts.body, fontSize: "15px", color: colors.ember, fontWeight: "600", margin: 0 }}>{currentClue.answer}</p>
+      {currentClue.note && (
+        <>
+          <p style={{ fontFamily: fonts.body, fontSize: "13px", fontWeight: "600", color: colors.ink, margin: "0 0 6px 0" }}>Note</p>
+          <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.inkMuted, margin: "0 0 22px 0", lineHeight: 1.5 }}>{currentClue.note}</p>
+        </>
+      )}
+
+      <p style={{ fontFamily: fonts.body, fontSize: "13px", fontWeight: "600", color: colors.ink, margin: "0 0 6px 0" }}>
+        {currentClue.answers?.length > 1 ? "Answers" : "Answer"}
+      </p>
+      {(currentClue.answers || []).map((a, i) => (
+        <p
+          key={i}
+          style={{
+            fontFamily: fonts.body,
+            fontSize: "15px",
+            color: a.isCorrect ? colors.ember : colors.inkMuted,
+            fontWeight: a.isCorrect ? "600" : "400",
+            margin: "0 0 4px 0",
+          }}
+        >
+          {a.isCorrect ? "✓ " : "✕ "}{a.text}
+        </p>
+      ))}
     </div>
   );
 

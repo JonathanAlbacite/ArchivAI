@@ -40,16 +40,75 @@ router.post("/campaigns", protect, teacherOnly, async (req, res) => {
   }
 });
 
-// Teacher: Add clues to a campaign
+// Validates one clue's `answers` array against its own `type` - see
+// ClueType in schema.prisma for what each shape requires. Returns an
+// error string, or null when the clue is valid.
+function validateClueAnswers(c) {
+  const answers = Array.isArray(c.answers) ? c.answers : [];
+  const correctCount = answers.filter((a) => a && a.isCorrect).length;
+
+  if (answers.some((a) => !a || !a.text || !a.text.trim()))
+    return "Every answer option needs text";
+
+  switch (c.type) {
+    case "MULTICHOICE":
+      if (answers.length !== 4 || correctCount !== 1)
+        return "MultiChoice needs exactly 4 answers with exactly 1 marked correct (3 decoys)";
+      return null;
+    case "COMBO":
+      if (correctCount < 1)
+        return "Combo needs at least 1 answer marked correct";
+      return null;
+    case "NORMAL":
+    default:
+      if (answers.length !== 1 || correctCount !== 1)
+        return "Normal needs exactly 1 answer, marked correct";
+      return null;
+  }
+}
+
+// A campaign's clues must match its scene's published VaultTemplate
+// exactly, in order - that's the whole point of the admin page: teachers
+// fill in content, they don't choose the shape. Returns an error string,
+// or null when `clues` lines up 1:1 with the template's slots.
+async function validateAgainstTemplate(scene, clues) {
+  const template = await prisma.vaultTemplate.findUnique({
+    where: { scene: (scene || "").toLowerCase().trim() },
+    include: { slots: { orderBy: { orderNumber: "asc" } } },
+  });
+
+  if (!template || !template.isPublished)
+    return "This vault has no published question-set template yet - ask an admin to publish one first";
+
+  if (clues.length !== template.slots.length)
+    return `This vault's template has ${template.slots.length} clue(s) - got ${clues.length}`;
+
+  for (let i = 0; i < clues.length; i++) {
+    if (clues[i].type !== template.slots[i].type)
+      return `Clue ${i + 1} must be type ${template.slots[i].type} (set by the vault's template)`;
+  }
+
+  return null;
+}
+
+// Teacher: Add the full clue set to a freshly-created campaign. Unlike a
+// generic "append" endpoint, this only ever runs once per campaign - the
+// clue set's size and per-page type are fixed by the scene's published
+// template (see validateAgainstTemplate), so there's nothing to append to
+// afterward. Editing an existing set goes through PUT below instead.
 router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);
   const { clues } = req.body;
 
   if (!Array.isArray(clues) || clues.length === 0)
     return res.status(400).json({ message: "clues must be a non-empty array" });
+  if (clues.some((c) => !c.question || !c.question.trim()))
+    return res.status(400).json({ message: "Each clue needs a question" });
 
-  if (clues.some((c) => !c.question || !c.answer))
-    return res.status(400).json({ message: "Each clue needs a question and answer" });
+  for (const c of clues) {
+    const error = validateClueAnswers(c);
+    if (error) return res.status(400).json({ message: error });
+  }
 
   try {
     const campaign = await findCampaignWithRoom(campaignId);
@@ -58,18 +117,35 @@ router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
 
     const existingCount = await prisma.clue.count({ where: { campaignId } });
+    if (existingCount > 0)
+      return res.status(400).json({ message: "This campaign already has clues - use PUT to replace them" });
 
-    await prisma.clue.createMany({
-      data: clues.map((c, i) => ({
-        campaignId,
-        orderNumber: existingCount + i + 1,
-        question: c.question,
-        answer: c.answer,
-      })),
-    });
+    const templateError = await validateAgainstTemplate(campaign.scene, clues);
+    if (templateError) return res.status(400).json({ message: templateError });
+
+    // createMany() can't create nested relations in one call, so each
+    // clue (with its answers) is created individually instead - clue
+    // counts per campaign are small (authored by hand, fixed by the
+    // vault's template), so this isn't a real performance concern.
+    for (let i = 0; i < clues.length; i++) {
+      const c = clues[i];
+      await prisma.clue.create({
+        data: {
+          campaignId,
+          orderNumber: i + 1,
+          type: c.type || "NORMAL",
+          question: c.question,
+          note: c.note || null,
+          answers: {
+            create: c.answers.map((a, j) => ({ text: a.text, isCorrect: !!a.isCorrect, order: j })),
+          },
+        },
+      });
+    }
 
     const allClues = await prisma.clue.findMany({
       where: { campaignId },
+      include: { answers: { orderBy: { order: "asc" } } },
       orderBy: { orderNumber: "asc" },
     });
 
@@ -80,20 +156,25 @@ router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
 });
 
 // Teacher: Replace a draft campaign's entire clue set in one shot (as
-// opposed to POST above, which only appends). Used by the full campaign
-// editor, which treats clues as a whole page list a teacher can reorder,
-// edit, or remove — not something to incrementally append to. Only allowed
-// while unpublished: since publishing is one-way, an unpublished campaign
-// can never have real student attempts recorded against its clues yet, so
-// deleting and recreating them is always safe.
+// opposed to POST above, which only creates the initial set). Used by the
+// full campaign editor, which treats clues as a whole page list matching
+// the scene's template - not something to incrementally append to. Only
+// allowed while unpublished: since publishing is one-way, an unpublished
+// campaign can never have real student attempts recorded against its
+// clues yet, so deleting and recreating them is always safe.
 router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);
   const { clues } = req.body;
 
-  if (!Array.isArray(clues))
-    return res.status(400).json({ message: "clues must be an array" });
-  if (clues.some((c) => !c.question || !c.answer))
-    return res.status(400).json({ message: "Each clue needs a question and answer" });
+  if (!Array.isArray(clues) || clues.length === 0)
+    return res.status(400).json({ message: "clues must be a non-empty array" });
+  if (clues.some((c) => !c.question || !c.question.trim()))
+    return res.status(400).json({ message: "Each clue needs a question" });
+
+  for (const c of clues) {
+    const error = validateClueAnswers(c);
+    if (error) return res.status(400).json({ message: error });
+  }
 
   try {
     const campaign = await findCampaignWithRoom(campaignId);
@@ -103,21 +184,32 @@ router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
     if (campaign.isPublished)
       return res.status(400).json({ message: "Published campaigns can't be edited" });
 
+    const templateError = await validateAgainstTemplate(campaign.scene, clues);
+    if (templateError) return res.status(400).json({ message: templateError });
+
+    // ClueAnswer rows cascade-delete with their Clue (onDelete: Cascade
+    // in schema.prisma), so clearing Clue also clears their old answers.
     await prisma.clue.deleteMany({ where: { campaignId } });
 
-    if (clues.length > 0) {
-      await prisma.clue.createMany({
-        data: clues.map((c, i) => ({
+    for (let i = 0; i < clues.length; i++) {
+      const c = clues[i];
+      await prisma.clue.create({
+        data: {
           campaignId,
           orderNumber: i + 1,
+          type: c.type || "NORMAL",
           question: c.question,
-          answer: c.answer,
-        })),
+          note: c.note || null,
+          answers: {
+            create: c.answers.map((a, j) => ({ text: a.text, isCorrect: !!a.isCorrect, order: j })),
+          },
+        },
       });
     }
 
     const allClues = await prisma.clue.findMany({
       where: { campaignId },
+      include: { answers: { orderBy: { order: "asc" } } },
       orderBy: { orderNumber: "asc" },
     });
 
@@ -222,7 +314,9 @@ router.get("/rooms/:roomId/campaigns", protect, async (req, res) => {
   }
 });
 
-// Get a single campaign with its clues (answers omitted)
+// Get a single campaign with its clues (answer TEXT/correctness is only
+// for the owning teacher to see while editing - a student fetching this
+// same campaign gets every other field but no answers at all).
 router.get("/campaigns/:id", protect, async (req, res) => {
   const campaignId = parseInt(req.params.id);
 
@@ -236,7 +330,14 @@ router.get("/campaigns/:id", protect, async (req, res) => {
 
     const clues = await prisma.clue.findMany({
       where: { campaignId },
-      select: { id: true, orderNumber: true, question: true, answer: isOwner },
+      select: {
+        id: true,
+        orderNumber: true,
+        type: true,
+        question: true,
+        note: true,
+        answers: isOwner ? { orderBy: { order: "asc" } } : false,
+      },
       orderBy: { orderNumber: "asc" },
     });
 
@@ -247,7 +348,9 @@ router.get("/campaigns/:id", protect, async (req, res) => {
   }
 });
 
-// Unity: Load campaign + clues (answers omitted)
+// Unity: Load campaign + clues, answers included - each clue now carries
+// its real ClueAnswer list ({text, isCorrect}) matching CampaignEntry.
+// AnswerOption on the Unity side exactly, for whichever ClueType it is.
 router.get("/campaigns/:id/load", protect, async (req, res) => {
   const campaignId = parseInt(req.params.id);
 
@@ -261,7 +364,17 @@ router.get("/campaigns/:id/load", protect, async (req, res) => {
 
     const clues = await prisma.clue.findMany({
       where: { campaignId },
-      select: { id: true, orderNumber: true, question: true },
+      select: {
+        id: true,
+        orderNumber: true,
+        type: true,
+        question: true,
+        note: true,
+        answers: {
+          orderBy: { order: "asc" },
+          select: { text: true, isCorrect: true },
+        },
+      },
       orderBy: { orderNumber: "asc" },
     });
 

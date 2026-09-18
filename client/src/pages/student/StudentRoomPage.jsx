@@ -5,6 +5,7 @@ import dashboard_bg from '../../assets/dashboard_bg.png'
 import Navbar from '../../components/Navbar'
 import EmberField from '../../components/EmberField'
 import PortalTransition from '../../components/PortalTransition'
+import UnityGame from '../../components/UnityGame'
 import { SceneBadge, SceneIcon } from '../../components/SceneIcon'
 import { getSceneMeta } from '../../scenes'
 import { colors, fonts } from '../../theme'
@@ -15,6 +16,7 @@ function StudentRoomPage() {
     const [portalActive, setPortalActive] = useState(false)
     const [gameLoading, setGameLoading] = useState(false)
     const [activeCampaign, setActiveCampaign] = useState(null)
+    const [playError, setPlayError] = useState(null)
     const navigate = useNavigate()
 
     const fetchRoom = async () => {
@@ -30,9 +32,35 @@ function StudentRoomPage() {
         fetchRoom()
     }, [id])
 
-    const handlePlay = (campaign) => {
-        setActiveCampaign(campaign)
-        setPortalActive(true)
+    // Marks this room's active campaign server-side BEFORE the game mounts -
+    // Unity only ever receives {token, roomId} (see UnityGame.jsx), then
+    // asks the API which campaign is currently active for that room. If
+    // that PATCH fails, the portal never starts and the player never sees
+    // a game that would just fail to find a campaign to load.
+    const handlePlay = async (campaign) => {
+        setPlayError(null)
+        const token = localStorage.getItem("token")
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/rooms/${id}/active-campaign`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`,
+                },
+                body: JSON.stringify({ campaignId: campaign.id }),
+            })
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}))
+                throw new Error(data.message || "Could not start this campaign")
+            }
+
+            setActiveCampaign(campaign)
+            setPortalActive(true)
+        } catch (err) {
+            setPlayError(err.message)
+        }
     }
 
     const handlePortalComplete = () => {
@@ -45,8 +73,14 @@ function StudentRoomPage() {
         setActiveCampaign(null)
     }
 
+    const handleGameError = () => {
+        setPlayError("The game failed to load. Check your connection and try again.")
+        handleReturnToRoom()
+    }
+
     if (gameLoading && activeCampaign) {
         const sceneMeta = getSceneMeta(activeCampaign.scene)
+        const token = localStorage.getItem("token")
         return (
             <div style={{ position: "fixed", inset: 0, backgroundColor: colors.obsidianDeep, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
                 <div style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 40%, ${sceneMeta.color}33, transparent 60%)`, pointerEvents: "none" }} />
@@ -55,18 +89,15 @@ function StudentRoomPage() {
                 <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "28px", color: colors.softGold, margin: "20px 0 6px 0", textAlign: "center" }}>
                     {activeCampaign.title}
                 </h1>
-                <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.brassBright, opacity: 0.85, margin: "0 0 28px 0" }}>
+                <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.brassBright, opacity: 0.85, margin: "0 0 20px 0" }}>
                     Entering the {sceneMeta.label}...
                 </p>
 
-                {/* Unity WebGL build mounts here once exported (see /public and index.js loader) */}
-                <div style={{ width: "260px", height: "6px", borderRadius: "6px", backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                    <div style={{ width: "60%", height: "100%", background: `linear-gradient(90deg, ${colors.magicVioletBright}, ${colors.softGold})`, animation: "shimmerSweep 1.6s ease-in-out infinite" }} />
-                </div>
+                <UnityGame token={token} roomId={id} onError={handleGameError} />
 
                 <button
                     onClick={handleReturnToRoom}
-                    style={{ marginTop: "36px", display: "flex", alignItems: "center", gap: "8px", background: "transparent", color: colors.brassBright, border: `1px solid ${colors.vaultBorder}`, borderRadius: "16px", padding: "10px 20px", fontFamily: fonts.body, fontWeight: "600", fontSize: "13px", cursor: "pointer" }}
+                    style={{ marginTop: "20px", display: "flex", alignItems: "center", gap: "8px", background: "transparent", color: colors.brassBright, border: `1px solid ${colors.vaultBorder}`, borderRadius: "16px", padding: "10px 20px", fontFamily: fonts.body, fontWeight: "600", fontSize: "13px", cursor: "pointer" }}
                 >
                     <ArrowLeft size={14} /> Return to Room
                 </button>
@@ -103,6 +134,12 @@ function StudentRoomPage() {
                             AWAITING RIDDLES
                         </p>
                         <h2 style={{ fontFamily: fonts.display, color: colors.ink, margin: "0 0 16px 0" }}>Campaigns</h2>
+
+                        {playError && (
+                            <p style={{ fontFamily: fonts.body, fontSize: "13px", color: "#B33A3A", margin: "0 0 16px 0" }}>
+                                {playError}
+                            </p>
+                        )}
 
                         {room?.campaigns?.length === 0 ? (
                             <p style={{ fontFamily: fonts.body, color: colors.inkMuted }}>No campaigns available yet.</p>

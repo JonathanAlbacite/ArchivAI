@@ -165,4 +165,86 @@ router.post("/join", protect, studentOnly, async (req, res) => {
   }
 });
 
+// Teacher or enrolled Student: Get the room's currently active campaign
+router.get("/:id/active-campaign", protect, async (req, res) => {
+  const roomId = parseInt(req.params.id);
+
+  try {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: { activeCampaign: true },
+    });
+
+    if (!room) return res.status(404).json({ message: "Room not found" });
+
+    if (req.user.role === "TEACHER") {
+      if (room.teacherId !== req.user.id)
+        return res.status(403).json({ message: "Access denied" });
+    } else if (req.user.role === "STUDENT") {
+      const enrolled = await prisma.roomStudent.findFirst({
+        where: { roomId: room.id, studentId: req.user.id },
+      });
+      if (!enrolled) return res.status(403).json({ message: "Access denied" });
+    } else {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    if (!room.activeCampaign) {
+      return res.status(404).json({ message: "No active campaign set for this room" });
+    }
+
+    res.json(room.activeCampaign);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher or enrolled Student: Set the room's active campaign (this is what
+// the "Play" buttons on both sides call)
+router.patch("/:id/active-campaign", protect, async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const { campaignId } = req.body;
+
+  if (!campaignId) {
+    return res.status(400).json({ message: "campaignId is required" });
+  }
+
+  try {
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    if (!room) return res.status(404).json({ message: "Room not found" });
+
+    if (req.user.role === "TEACHER") {
+      if (room.teacherId !== req.user.id)
+        return res.status(403).json({ message: "Access denied" });
+    } else if (req.user.role === "STUDENT") {
+      const enrolled = await prisma.roomStudent.findFirst({
+        where: { roomId: room.id, studentId: req.user.id },
+      });
+      if (!enrolled) return res.status(403).json({ message: "Access denied" });
+    } else {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    // Confirm the campaign actually belongs to this room, so a room
+    // can't accidentally get pointed at another room's campaign.
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: parseInt(campaignId) },
+    });
+
+    if (!campaign || campaign.roomId !== roomId) {
+      return res.status(404).json({ message: "Campaign not found in this room" });
+    }
+
+    const updated = await prisma.room.update({
+      where: { id: roomId },
+      data: { activeCampaignId: campaign.id },
+      include: { activeCampaign: true },
+    });
+
+    res.json(updated.activeCampaign);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 export default router;

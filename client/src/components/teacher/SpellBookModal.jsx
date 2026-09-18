@@ -5,7 +5,37 @@ import { colors, fonts } from "../../theme";
 import { SCENE_LIST, getSceneMeta } from "../../scenes";
 import { SceneBadge } from "../SceneIcon";
 
-const emptyClue = () => ({ question: "", answer: "" });
+// Which Question/Answer/Note "pairing" shape a clue page is authored as -
+// mirrors the server's own ClueType enum (see schema.prisma). A campaign's
+// clue pages are no longer freely added/typed by the teacher - they're
+// fixed by the scene's published VaultTemplate (see fetchTemplate below),
+// one page per slot, in that exact order and type. This just controls how
+// each page's answer fields render.
+const CLUE_TYPES = {
+  NORMAL: "Normal — Question, Answer, Note",
+  MULTICHOICE: "MultiChoice — Question, Note, Answer + 3 Decoys",
+  COMBO: "Combo — Question, Note, extendable Answers & Decoys",
+};
+
+// The answers array a clue page starts with for a given type - see header
+// above for what each shape means. NORMAL and COMBO both start with one
+// blank correct answer (Combo just allows adding more via addAnswerRow());
+// MultiChoice starts with all four slots already in place since that
+// shape is fixed, not extendable.
+const defaultAnswersFor = (type) => {
+  if (type === "MULTICHOICE") {
+    return [
+      { text: "", isCorrect: true },
+      { text: "", isCorrect: false },
+      { text: "", isCorrect: false },
+      { text: "", isCorrect: false },
+    ];
+  }
+  return [{ text: "", isCorrect: true }];
+};
+
+const emptyClueForType = (type) => ({ type, question: "", note: "", answers: defaultAnswersFor(type) });
+
 const FLIP_MS = 420;
 const FLIP_SWAP_MS = 210;
 const CLOSE_MS = 320;
@@ -146,7 +176,7 @@ function SceneCard({ s, active, onClick }) {
   );
 }
 
-function ArrowNavButton({ direction, onClick, disabled, badge }) {
+function ArrowNavButton({ direction, onClick, disabled }) {
   const Icon = direction === "prev" ? ChevronLeft : ChevronRight;
   const side = direction === "prev" ? "left" : "right";
   return (
@@ -154,7 +184,7 @@ function ArrowNavButton({ direction, onClick, disabled, badge }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={direction === "prev" ? "Previous page" : badge ? "Add a new clue page" : "Next page"}
+      title={direction === "prev" ? "Previous page" : "Next page"}
       style={{
         position: "absolute",
         top: "50%",
@@ -176,28 +206,6 @@ function ArrowNavButton({ direction, onClick, disabled, badge }) {
       }}
     >
       <Icon size={22} />
-      {badge && (
-        <span
-          style={{
-            position: "absolute",
-            top: "-4px",
-            [side]: "-4px",
-            width: "18px",
-            height: "18px",
-            borderRadius: "50%",
-            background: colors.danger,
-            color: PAPER_BG,
-            fontSize: "12px",
-            fontWeight: "700",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 2px 4px rgba(0,0,0,0.4)",
-          }}
-        >
-          +
-        </span>
-      )}
     </button>
   );
 }
@@ -416,7 +424,8 @@ function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
 
 // Takes over the right page while clues conjured from an uploaded lesson
 // are awaiting review. Approving/rejecting/editing here persists straight
-// to the GeneratedClue rows; only approved ones get inserted as pages.
+// to the GeneratedClue rows; only approved ones get inserted into this
+// vault's empty Normal-type pages (see insertApprovedClues).
 function GeneratedCluesReview({ clues, onSaveEdit, onApprove, onReject, onInsert, onCancel }) {
   const approvedCount = clues.filter((c) => c.status === "approved").length;
 
@@ -426,7 +435,8 @@ function GeneratedCluesReview({ clues, onSaveEdit, onApprove, onReject, onInsert
         Review Generated Clues
       </h2>
       <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 14px 0" }}>
-        Approve the clues you want added to the book. Edit any wording first if needed.
+        Approve the clues you want added. They'll drop into this vault's empty Normal-type pages, in order —
+        MultiChoice/Combo pages still need to be filled in by hand.
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -459,7 +469,7 @@ function GeneratedCluesReview({ clues, onSaveEdit, onApprove, onReject, onInsert
             cursor: approvedCount === 0 ? "default" : "pointer",
           }}
         >
-          Add {approvedCount || ""} Approved Clue{approvedCount === 1 ? "" : "s"} to Campaign
+          Add {approvedCount || ""} Approved Clue{approvedCount === 1 ? "" : "s"}
         </button>
       </div>
     </div>
@@ -467,21 +477,37 @@ function GeneratedCluesReview({ clues, onSaveEdit, onApprove, onReject, onInsert
 }
 
 // activeIndex 0 = the cover/setup page (title, description, realm); indices
-// 1..pages.length are clue pages, one per entry in `pages`.
+// 1..pages.length are clue pages, one per slot in the scene's published
+// VaultTemplate. Unlike the old free-form book, pages here are NOT added
+// or removed by the teacher — their count, order, and type come straight
+// from the vault's admin-authored template (see fetchTemplate). A scene
+// with no published template yet blocks campaign creation entirely
+// (templateStatus "none") - see the admin page for authoring one.
 //
 // Doubles as the full campaign editor: pass an existing `campaign` (as
-// returned by GET /api/campaigns/:id, including its clues) to pre-fill
-// every field and switch sealing from create to update. Only reachable for
-// drafts (RoomPage only offers Edit while !isPublished) — the server
-// enforces that too on both the metadata PATCH and the clues PUT below.
+// returned by GET /api/campaigns/:id, including its typed clues) to
+// pre-fill every field and switch sealing from create to update. Only
+// reachable for drafts (RoomPage only offers Edit while !isPublished) —
+// the server enforces that too on both the metadata PATCH and the clues
+// PUT below.
 function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   const isEditing = !!campaign;
   const [title, setTitle] = useState(campaign?.title || "");
   const [description, setDescription] = useState(campaign?.description || "");
   const [scene, setScene] = useState(campaign?.scene || "");
   const [pages, setPages] = useState(
-    campaign?.clues?.map((c) => ({ question: c.question, answer: c.answer })) || []
+    campaign?.clues?.map((c) => ({
+      type: c.type || "NORMAL",
+      question: c.question,
+      note: c.note || "",
+      answers: (c.answers || []).map((a) => ({ text: a.text, isCorrect: a.isCorrect })),
+    })) || []
   );
+  // idle (no scene picked yet) -> loading -> ready (pages match a
+  // published template) | none (no published template for this scene).
+  // Editing an existing campaign starts "ready" since its pages already
+  // came from whatever template was published when it was created.
+  const [templateStatus, setTemplateStatus] = useState(isEditing ? "ready" : "idle");
   const [activeIndex, setActiveIndex] = useState(0);
   const [focusedField, setFocusedField] = useState(null);
   const [flipping, setFlipping] = useState(null);
@@ -504,6 +530,53 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   const lastIndex = pages.length;
   const atFrontier = activeIndex === lastIndex;
 
+  // Loads the published template for a scene and resets `pages` to match
+  // it exactly - one blank page per slot, in order, each locked to that
+  // slot's type. A 404 means the vault has no published template yet,
+  // which blocks creating clue pages there at all (templateStatus "none").
+  const loadTemplate = async (nextScene) => {
+    setTemplateStatus("loading");
+    setPages([]);
+    setActiveIndex(0);
+
+    const token = localStorage.getItem("token");
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/vault-templates/${nextScene}/published`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 404) {
+        setTemplateStatus("none");
+        return;
+      }
+
+      const data = await res.json();
+      if (!res.ok) {
+        setTemplateStatus("error");
+        return;
+      }
+
+      setPages(data.slots.map((s) => emptyClueForType(s.type)));
+      setTemplateStatus("ready");
+    } catch (err) {
+      console.error(err);
+      setTemplateStatus("error");
+    }
+  };
+
+  // Picking a scene resets the clue pages to that scene's template - if
+  // there's already page content (mid-edit, switching scenes), confirm
+  // first since it discards whatever's been filled in so far.
+  const handleSceneChange = (nextScene) => {
+    if (nextScene === scene || flipping || closing || reviewing) return;
+    const hasContent = pages.some((p) => p.question.trim() || p.answers.some((a) => a.text.trim()));
+    if (hasContent && !window.confirm("Switching vaults resets the clue pages to match the new vault's question set. Continue?")) {
+      return;
+    }
+    setScene(nextScene);
+    loadTemplate(nextScene);
+  };
+
   const turnPage = (direction) => {
     if (flipping || closing || reviewing) return;
 
@@ -515,13 +588,9 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       return;
     }
 
+    if (atFrontier) return; // fixed-length book - no page past the last clue
     setFlipping("next");
-    setTimeout(() => {
-      if (atFrontier) {
-        setPages((p) => [...p, emptyClue()]);
-      }
-      setActiveIndex((i) => i + 1);
-    }, FLIP_SWAP_MS);
+    setTimeout(() => setActiveIndex((i) => i + 1), FLIP_SWAP_MS);
     setTimeout(() => setFlipping(null), FLIP_MS);
   };
 
@@ -530,12 +599,29 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     setPages(pages.map((p, i) => (i === clueIndex ? { ...p, [field]: value } : p)));
   };
 
-  const removeClue = () => {
+  const updateAnswerField = (answerIndex, field, value) => {
     const clueIndex = activeIndex - 1;
-    if (clueIndex < 0) return;
-    const next = pages.filter((_, i) => i !== clueIndex);
-    setPages(next);
-    setActiveIndex(Math.min(activeIndex, next.length));
+    setPages(pages.map((p, i) => {
+      if (i !== clueIndex) return p;
+      const answers = p.answers.map((a, j) => (j === answerIndex ? { ...a, [field]: value } : a));
+      return { ...p, answers };
+    }));
+  };
+
+  // Combo-only - Normal has exactly 1 answer and MultiChoice's 4 slots are
+  // fixed, so only Combo's own render branch ever calls these.
+  const addAnswerRow = () => {
+    const clueIndex = activeIndex - 1;
+    setPages(pages.map((p, i) =>
+      i === clueIndex ? { ...p, answers: [...p.answers, { text: "", isCorrect: false }] } : p
+    ));
+  };
+
+  const removeAnswerRow = (answerIndex) => {
+    const clueIndex = activeIndex - 1;
+    setPages(pages.map((p, i) =>
+      i === clueIndex ? { ...p, answers: p.answers.filter((_, j) => j !== answerIndex) } : p
+    ));
   };
 
   const fieldStyle = (field) => ({
@@ -557,15 +643,16 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
 
   const labelStyle = { fontFamily: fonts.body, color: colors.ink, fontWeight: "600", fontSize: "13px" };
 
-  // Uploads the chosen lesson file, extracts its text, and asks Gemini to
-  // conjure a batch of clues (GeneratedClue rows) to review below.
+  // Uploads the chosen lesson file, extracts its text, and asks the AI
+  // assistant to conjure a batch of clues (GeneratedClue rows) to review
+  // below. Generated clues are always plain Normal-type Q&A pairs.
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
 
-    if (!scene) {
-      setLessonError("Choose a scene above first — clues are themed to it.");
+    if (!scene || templateStatus !== "ready") {
+      setLessonError("Choose a vault with a published question-set first.");
       setLessonStep("error");
       return;
     }
@@ -635,13 +722,31 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     }
   };
 
-  // Only approved clues become pages; rejected/still-pending ones are left
-  // behind (they stay recorded server-side, just never added to the book).
+  // Only approved clues get used, and only into pages that are (a) Normal
+  // type and (b) still blank - AI-generated content is always plain
+  // Normal Q&A (see lessonModules.js), so it can never fill a MultiChoice
+  // or Combo slot. Any approved clues left over once every empty Normal
+  // page is full are simply not added.
   const insertApprovedClues = () => {
     const approved = generatedClues.filter((c) => c.status === "approved");
     if (approved.length === 0) return;
 
-    setPages((p) => [...p, ...approved.map((c) => ({ question: c.clueText, answer: c.answerText }))]);
+    let used = 0;
+    setPages((prev) =>
+      prev.map((p) => {
+        if (used < approved.length && p.type === "NORMAL" && !p.question.trim()) {
+          const c = approved[used];
+          used += 1;
+          return { ...p, question: c.clueText, answers: [{ text: c.answerText, isCorrect: true }] };
+        }
+        return p;
+      })
+    );
+
+    if (used < approved.length) {
+      alert(`Only ${used} of ${approved.length} approved clue(s) fit into this vault's empty Normal pages - the rest weren't added.`);
+    }
+
     setLessonStep("idle");
     setGeneratedClues([]);
   };
@@ -651,11 +756,24 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     setGeneratedClues([]);
   };
 
+  // Every page is required - the vault's template is a fixed contract, not
+  // a suggestion, so there's no such thing as a partially-filled clue set
+  // going to the server. Returns the 0-based index of the first incomplete
+  // page, or -1 if every page is ready to submit.
+  const findIncompletePage = () => {
+    for (let i = 0; i < pages.length; i++) {
+      const p = pages[i];
+      if (!p.question.trim()) return i;
+      if (p.answers.length === 0 || p.answers.some((a) => !a.text.trim())) return i;
+      if (p.type === "COMBO" && !p.answers.some((a) => a.isCorrect)) return i;
+    }
+    return -1;
+  };
+
   // Runs the create/update -> clues -> publish sequence. Editing PATCHes the
-  // existing campaign's metadata and PUTs the whole clue set (replacing it,
-  // since the teacher may have removed or reordered pages); creating POSTs
-  // both fresh. Returns whether it succeeded; does not touch modal/close
-  // state so the caller can drive the closing animation around it.
+  // existing campaign's metadata and PUTs the whole clue set (replacing it);
+  // creating POSTs both fresh. Returns whether it succeeded; does not touch
+  // modal/close state so the caller can drive the closing animation around it.
   const seal = async () => {
     const token = localStorage.getItem("token");
     setSubmitting(true);
@@ -679,32 +797,17 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       }
 
       const finalCampaignId = isEditing ? campaignId : metaData.id;
-      const filledClues = pages.filter((c) => c.question && c.answer);
+      const clues = pages.map((p) => ({ type: p.type, question: p.question, note: p.note || null, answers: p.answers }));
 
-      if (isEditing) {
-        // PUT replaces the whole set (including clearing it if the teacher
-        // removed every page), unlike POST below which only appends.
-        const cluesRes = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${finalCampaignId}/clues`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ clues: filledClues }),
-        });
-        const cluesData = await cluesRes.json();
-        if (!cluesRes.ok) {
-          alert(cluesData.message);
-          return false;
-        }
-      } else if (filledClues.length > 0) {
-        const cluesRes = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${finalCampaignId}/clues`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ clues: filledClues }),
-        });
-        const cluesData = await cluesRes.json();
-        if (!cluesRes.ok) {
-          alert(cluesData.message);
-          return false;
-        }
+      const cluesRes = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${finalCampaignId}/clues`, {
+        method: isEditing ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clues }),
+      });
+      const cluesData = await cluesRes.json();
+      if (!cluesRes.ok) {
+        alert(cluesData.message);
+        return false;
       }
 
       if (publishNow) {
@@ -741,6 +844,16 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     }
     if (!title.trim()) {
       alert("Title is required.");
+      return;
+    }
+    if (!scene || templateStatus !== "ready") {
+      alert("Choose a vault with a published question-set before sealing the book.");
+      return;
+    }
+    const incomplete = findIncompletePage();
+    if (incomplete !== -1) {
+      setActiveIndex(incomplete + 1);
+      alert(`Clue ${incomplete + 1} is incomplete - fill in its question and every answer before sealing the book.`);
       return;
     }
     setClosing(true);
@@ -931,19 +1044,40 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                         style={{ ...fieldStyle("description"), marginBottom: "20px" }}
                       />
 
-                      <label style={labelStyle}>Choose a Scene</label>
+                      <label style={labelStyle}>Choose a Vault</label>
                       <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
                         {SCENE_LIST.map((s) => (
-                          <SceneCard key={s.key} s={s} active={scene === s.key} onClick={() => setScene(s.key)} />
+                          <SceneCard key={s.key} s={s} active={scene === s.key} onClick={() => handleSceneChange(s.key)} />
                         ))}
                       </div>
+
+                      {scene && templateStatus === "loading" && (
+                        <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "10px 0 0 0" }}>
+                          Loading this vault's question set...
+                        </p>
+                      )}
+                      {scene && templateStatus === "none" && (
+                        <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.danger, margin: "10px 0 0 0" }}>
+                          This vault has no published question-set yet. Ask an admin to publish one before you can create a campaign here.
+                        </p>
+                      )}
+                      {scene && templateStatus === "error" && (
+                        <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.danger, margin: "10px 0 0 0" }}>
+                          Couldn't load this vault's question set. Try picking it again.
+                        </p>
+                      )}
+                      {scene && templateStatus === "ready" && (
+                        <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.success, margin: "10px 0 0 0" }}>
+                          {pages.length} clue{pages.length === 1 ? "" : "s"} in this vault's question set — turn the page to fill them in.
+                        </p>
+                      )}
 
                       <div style={{ marginTop: "22px", paddingTop: "18px", borderTop: `1px dashed ${colors.parchmentLine}` }}>
                         <label style={labelStyle}>Generate Clues from a Lesson</label>
                         <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "6px 0 10px 0" }}>
-                          {scene
-                            ? `Upload a lesson document (.pdf, .docx, .doc, .txt) and the AI assistant will draft ${getSceneMeta(scene).label}-themed clues for you to review.`
-                            : "Choose a scene above first — generated clues are themed to it."}
+                          {scene && templateStatus === "ready"
+                            ? `Upload a lesson document (.pdf, .docx, .doc, .txt) and the AI assistant will draft ${getSceneMeta(scene).label}-themed clues to review — they'll fill this vault's empty Normal pages.`
+                            : "Choose a vault with a published question-set above first."}
                         </p>
                         <input
                           ref={fileInputRef}
@@ -955,7 +1089,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                         <button
                           type="button"
                           onClick={() => fileInputRef.current?.click()}
-                          disabled={!scene || lessonStep === "uploading" || lessonStep === "generating"}
+                          disabled={!scene || templateStatus !== "ready" || lessonStep === "uploading" || lessonStep === "generating"}
                           style={{
                             display: "flex",
                             alignItems: "center",
@@ -968,8 +1102,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                             fontFamily: fonts.body,
                             fontSize: "13px",
                             fontWeight: "600",
-                            cursor: !scene || lessonStep === "uploading" || lessonStep === "generating" ? "default" : "pointer",
-                            opacity: !scene || lessonStep === "uploading" || lessonStep === "generating" ? 0.6 : 1,
+                            cursor: !scene || templateStatus !== "ready" || lessonStep === "uploading" || lessonStep === "generating" ? "default" : "pointer",
+                            opacity: !scene || templateStatus !== "ready" || lessonStep === "uploading" || lessonStep === "generating" ? 0.6 : 1,
                           }}
                         >
                           <Sparkles size={14} />
@@ -990,43 +1124,139 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                     <div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                         <p style={{ fontFamily: fonts.flourish, fontSize: "14px", color: colors.ember, letterSpacing: "1px", margin: 0 }}>
-                          Clue {activeIndex}
+                          Clue {activeIndex} of {lastIndex}
                         </p>
-                        <button
-                          type="button"
-                          onClick={removeClue}
-                          style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex", alignItems: "center", gap: "4px", fontFamily: fonts.body, fontSize: "12px" }}
-                        >
-                          <Trash2 size={13} /> remove page
-                        </button>
+                        <span style={{ fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: colors.inkMuted, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          {currentClue.type}
+                        </span>
                       </div>
+
+                      <p style={{ fontFamily: fonts.body, fontSize: "11px", color: colors.inkMuted, margin: "0 0 14px 0", fontStyle: "italic" }}>
+                        {CLUE_TYPES[currentClue.type]} — set by this vault's template, can't be changed here.
+                      </p>
 
                       <label style={labelStyle}>Question</label>
                       <textarea
-                        rows={4}
+                        rows={3}
                         value={currentClue.question}
                         onChange={(e) => updateClue("question", e.target.value)}
                         onFocus={() => setFocusedField("question")}
                         onBlur={() => setFocusedField(null)}
-                        placeholder="Enter the clue's question"
-                        style={{ ...fieldStyle("question"), marginBottom: "18px" }}
+                        placeholder="What riddle guards this clue? Shown as the Clue text in-game too."
+                        style={{ ...fieldStyle("question"), marginBottom: "14px" }}
                       />
 
-                      <label style={labelStyle}>Answer</label>
-                      <input
-                        type="text"
-                        value={currentClue.answer}
-                        onChange={(e) => updateClue("answer", e.target.value)}
-                        onFocus={() => setFocusedField("answer")}
+                      <label style={labelStyle}>Note</label>
+                      <textarea
+                        rows={2}
+                        value={currentClue.note}
+                        onChange={(e) => updateClue("note", e.target.value)}
+                        onFocus={() => setFocusedField("note")}
                         onBlur={() => setFocusedField(null)}
-                        placeholder="Correct answer"
-                        style={fieldStyle("answer")}
+                        placeholder="Free-standing lore text for the Journal's Note panel (optional)"
+                        style={{ ...fieldStyle("note"), marginBottom: "18px" }}
                       />
+
+                      {currentClue.type === "NORMAL" && (
+                        <>
+                          <label style={labelStyle}>Answer</label>
+                          <input
+                            type="text"
+                            value={currentClue.answers[0]?.text || ""}
+                            onChange={(e) => updateAnswerField(0, "text", e.target.value)}
+                            onFocus={() => setFocusedField("answer0")}
+                            onBlur={() => setFocusedField(null)}
+                            placeholder="The true answer"
+                            style={fieldStyle("answer0")}
+                          />
+                        </>
+                      )}
+
+                      {currentClue.type === "MULTICHOICE" && (
+                        <>
+                          <label style={labelStyle}>Correct Answer</label>
+                          <input
+                            type="text"
+                            value={currentClue.answers[0]?.text || ""}
+                            onChange={(e) => updateAnswerField(0, "text", e.target.value)}
+                            onFocus={() => setFocusedField("answer0")}
+                            onBlur={() => setFocusedField(null)}
+                            placeholder="The one correct answer"
+                            style={{ ...fieldStyle("answer0"), marginBottom: "14px" }}
+                          />
+                          {[1, 2, 3].map((idx) => (
+                            <div key={idx}>
+                              <label style={labelStyle}>Decoy {idx}</label>
+                              <input
+                                type="text"
+                                value={currentClue.answers[idx]?.text || ""}
+                                onChange={(e) => updateAnswerField(idx, "text", e.target.value)}
+                                onFocus={() => setFocusedField(`answer${idx}`)}
+                                onBlur={() => setFocusedField(null)}
+                                placeholder={`Wrong answer ${idx}`}
+                                style={{ ...fieldStyle(`answer${idx}`), marginBottom: idx < 3 ? "14px" : 0 }}
+                              />
+                            </div>
+                          ))}
+                        </>
+                      )}
+
+                      {currentClue.type === "COMBO" && (
+                        <>
+                          <label style={labelStyle}>Answers &amp; Decoys</label>
+                          {currentClue.answers.map((a, idx) => (
+                            <div key={idx} style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
+                              <input
+                                type="text"
+                                value={a.text}
+                                onChange={(e) => updateAnswerField(idx, "text", e.target.value)}
+                                onFocus={() => setFocusedField(`answer${idx}`)}
+                                onBlur={() => setFocusedField(null)}
+                                placeholder="Answer text"
+                                style={{ ...fieldStyle(`answer${idx}`), marginTop: 0, flex: 1 }}
+                              />
+                              <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", fontFamily: fonts.body, color: colors.ink, whiteSpace: "nowrap" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={a.isCorrect}
+                                  onChange={(e) => updateAnswerField(idx, "isCorrect", e.target.checked)}
+                                />
+                                Correct
+                              </label>
+                              {currentClue.answers.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeAnswerRow(idx)}
+                                  title="Remove this answer option"
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex" }}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={addAnswerRow}
+                            style={{
+                              marginTop: "10px",
+                              background: "none",
+                              border: `1px dashed ${colors.parchmentLine}`,
+                              borderRadius: "4px",
+                              padding: "6px 10px",
+                              cursor: "pointer",
+                              color: colors.ember,
+                              fontFamily: fonts.body,
+                              fontSize: "12px",
+                            }}
+                          >
+                            + Add Answer / Decoy
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
-
-                <div className="sb-dogear" onClick={() => turnPage("next")} title="Turn the page" />
               </div>
             </div>
           </div>
@@ -1051,7 +1281,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
 
           {/* Primary action */}
           <div style={{ padding: "10px 6px 0 6px" }}>
-            <SealButton onClick={closeAndSeal} disabled={submitting || closing}>
+            <SealButton onClick={closeAndSeal} disabled={submitting || closing || templateStatus !== "ready"}>
               {submitting || closing
                 ? publishNow
                   ? "Publishing..."
@@ -1066,7 +1296,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
         </div>
 
         <ArrowNavButton direction="prev" onClick={() => turnPage("prev")} disabled={activeIndex === 0 || flipping || closing || reviewing} />
-        <ArrowNavButton direction="next" onClick={() => turnPage("next")} disabled={flipping || closing || reviewing} badge={atFrontier} />
+        <ArrowNavButton direction="next" onClick={() => turnPage("next")} disabled={atFrontier || flipping || closing || reviewing} />
       </div>
     </div>
   );

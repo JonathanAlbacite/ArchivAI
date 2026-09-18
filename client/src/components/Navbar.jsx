@@ -7,6 +7,7 @@ import { colors, fonts } from "../theme";
 const ROLE_LABELS = {
   TEACHER: "Teacher",
   STUDENT: "Archivist",
+  ADMIN: "Admin",
 };
 
 function Navbar() {
@@ -16,7 +17,7 @@ function Navbar() {
   const name = localStorage.getItem("name");
   const role = localStorage.getItem("role");
   const roleLabel = ROLE_LABELS[role] || "Wanderer";
-  const accent = role === "STUDENT" ? colors.magicVioletBright : colors.emberBright;
+  const accent = role === "STUDENT" ? colors.magicVioletBright : role === "ADMIN" ? colors.brassBright : colors.emberBright;
 
   const handleLogout = () => {
     localStorage.removeItem("token");

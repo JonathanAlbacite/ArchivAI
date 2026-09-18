@@ -6,6 +6,8 @@ import RoomPage from "./pages/teacher/RoomPage";
 import StudentDashboard from "./pages/student/StudentDashboard";
 import StudentRoomPage from "./pages/student/StudentRoomPage";
 import TeacherChatWidget from "./components/teacher/TeacherChatWidget";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminVaultEditor from "./pages/admin/AdminVaultEditor";
 
 // Wraps every teacher route so the chat widget mounts once and survives
 // navigation between teacher pages (Messenger-style persistent bubble)
@@ -31,6 +33,8 @@ function App() {
         </Route>
         <Route path="/student/dashboard" element={<StudentDashboard />} />
         <Route path="/student/room/:id" element={<StudentRoomPage />} />
+        <Route path="/admin/dashboard" element={<AdminDashboard />} />
+        <Route path="/admin/vault/:scene" element={<AdminVaultEditor />} />
       </Routes>
     </BrowserRouter>
   );

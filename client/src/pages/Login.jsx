@@ -35,6 +35,8 @@ function Login() {
 
       if (data.role === "TEACHER") {
         navigate("/teacher/dashboard");
+      } else if (data.role === "ADMIN") {
+        navigate("/admin/dashboard");
       } else {
         navigate("/student/dashboard");
       }

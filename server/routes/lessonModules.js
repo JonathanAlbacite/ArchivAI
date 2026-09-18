@@ -309,17 +309,27 @@ router.post("/campaigns/:id/attach-clues", protect, teacherOnly, async (req, res
 
     const existingCount = await prisma.clue.count({ where: { campaignId } });
 
-    await prisma.clue.createMany({
-      data: generatedClues.map((c, i) => ({
-        campaignId,
-        orderNumber: existingCount + i + 1,
-        question: c.clueText,
-        answer: c.answerText,
-      })),
-    });
+    // AI-generated clues are always plain NORMAL clues (single correct
+    // answer, no decoys) - see buildCluePrompt above, which only ever asks
+    // for {clueText, answerText} pairs. createMany() can't create nested
+    // relations, so each clue (with its one-item answers list) is created
+    // individually.
+    for (let i = 0; i < generatedClues.length; i++) {
+      const c = generatedClues[i];
+      await prisma.clue.create({
+        data: {
+          campaignId,
+          orderNumber: existingCount + i + 1,
+          type: "NORMAL",
+          question: c.clueText,
+          answers: { create: [{ text: c.answerText, isCorrect: true, order: 0 }] },
+        },
+      });
+    }
 
     const allClues = await prisma.clue.findMany({
       where: { campaignId },
+      include: { answers: { orderBy: { order: "asc" } } },
       orderBy: { orderNumber: "asc" },
     });
 

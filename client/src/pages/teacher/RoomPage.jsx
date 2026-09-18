@@ -1,12 +1,15 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { UserPlus, Trash2, BookOpen, Sparkles, Pencil } from 'lucide-react'
+import { UserPlus, Trash2, BookOpen, Sparkles, Pencil, Wand2, ArrowLeft } from 'lucide-react'
 import dashboard_bg from '../../assets/dashboard_bg.png'
 import Navbar from '../../components/Navbar'
 import EmberField from '../../components/EmberField'
+import PortalTransition from '../../components/PortalTransition'
+import UnityGame from '../../components/UnityGame'
 import SpellBookModal from '../../components/teacher/SpellBookModal'
 import CampaignBookViewer from '../../components/teacher/CampaignBookViewer'
 import { SceneBadge } from '../../components/SceneIcon'
+import { getSceneMeta } from '../../scenes'
 import { colors, fonts } from '../../theme'
 
 function RoomPage() {
@@ -19,6 +22,9 @@ function RoomPage() {
     const [openCampaignId, setOpenCampaignId] = useState(null)
     const [editingCampaign, setEditingCampaign] = useState(null)
     const [loadingEditId, setLoadingEditId] = useState(null)
+    const [portalActive, setPortalActive] = useState(false)
+    const [gameLoading, setGameLoading] = useState(false)
+    const [activeCampaign, setActiveCampaign] = useState(null)
     const navigate = useNavigate()
 
     const fetchRoom = async () => {
@@ -117,6 +123,46 @@ function RoomPage() {
     }
 }
 
+    // Mirrors the Student side's Play flow - marks this campaign as the
+    // room's active campaign (same endpoint the Student "Play" button
+    // calls), then mounts the same UnityGame component the student would
+    // see. Lets a teacher preview/test a campaign exactly as a student
+    // would experience it.
+    const handlePlay = async (campaign) => {
+        const token = localStorage.getItem("token")
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/rooms/${id}/active-campaign`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                body: JSON.stringify({ campaignId: campaign.id }),
+            })
+
+            if (!res.ok) {
+                const data = await res.json()
+                alert(data.message || "Could not start this campaign.")
+                return
+            }
+        } catch (err) {
+            console.error(err)
+            alert("Something went wrong starting the campaign.")
+            return
+        }
+
+        setActiveCampaign(campaign)
+        setPortalActive(true)
+    }
+
+    const handlePortalComplete = () => {
+        setPortalActive(false)
+        setGameLoading(true)
+    }
+
+    const handleReturnToRoom = () => {
+        setGameLoading(false)
+        setActiveCampaign(null)
+    }
+
     // The room's campaign list (from GET /api/rooms/:id) doesn't include
     // clues, so editing needs a fresh fetch of the full campaign first —
     // same endpoint CampaignBookViewer uses, which already returns clues
@@ -143,6 +189,36 @@ function RoomPage() {
         } finally {
             setLoadingEditId(null)
         }
+    }
+
+    if (gameLoading && activeCampaign) {
+        const sceneMeta = getSceneMeta(activeCampaign.scene)
+        return (
+            <div style={{ position: "fixed", inset: 0, backgroundColor: colors.obsidianDeep, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
+                <div style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 40%, ${sceneMeta.color}33, transparent 60%)`, pointerEvents: "none" }} />
+
+                <sceneMeta.Icon size={54} color={sceneMeta.color} />
+                <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "28px", color: colors.brassBright, margin: "20px 0 6px 0", textAlign: "center" }}>
+                    {activeCampaign.title}
+                </h1>
+                <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.emberBright, opacity: 0.85, margin: "0 0 20px 0" }}>
+                    Previewing the {sceneMeta.label}...
+                </p>
+
+                <UnityGame
+                    token={localStorage.getItem("token")}
+                    roomId={id}
+                    onError={() => alert("Could not load the game - check the browser console for details.")}
+                />
+
+                <button
+                    onClick={handleReturnToRoom}
+                    style={{ marginTop: "20px", display: "flex", alignItems: "center", gap: "8px", background: "transparent", color: colors.brassBright, border: `1px solid ${colors.vaultBorder}`, borderRadius: "16px", padding: "10px 20px", fontFamily: fonts.body, fontWeight: "600", fontSize: "13px", cursor: "pointer" }}
+                >
+                    <ArrowLeft size={14} /> Return to Room
+                </button>
+            </div>
+        )
     }
 
     return (
@@ -266,6 +342,13 @@ function RoomPage() {
                                                         >
                                                             <Trash2 size={14} color="#C9BBA6" />
                                                         </button>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handlePlay(c) }}
+                                                            title="Preview this campaign as a student would see it"
+                                                            style={{ display: "flex", alignItems: "center", gap: "6px", background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`, color: "white", border: "none", borderRadius: "14px", padding: "6px 12px", fontFamily: fonts.body, fontWeight: "600", fontSize: "12px", cursor: "pointer", flexShrink: 0 }}
+                                                        >
+                                                            <Wand2 size={12} /> Play
+                                                        </button>
                                                     </div>
                                                 </div>
                                                 <div style={{ marginTop: "6px" }}>
@@ -298,6 +381,13 @@ function RoomPage() {
                 <CampaignBookViewer
                     campaignId={openCampaignId}
                     onClose={() => setOpenCampaignId(null)}
+                />
+            )}
+
+            {portalActive && (
+                <PortalTransition
+                    label={activeCampaign ? `Entering ${activeCampaign.title}...` : "The vault opens..."}
+                    onComplete={handlePortalComplete}
                 />
             )}
 
