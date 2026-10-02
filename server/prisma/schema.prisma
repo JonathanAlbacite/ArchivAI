@@ -20,6 +20,7 @@ model User {
   sessions          CampaignSession[]
   lessonModules     LessonModule[]
   chatConversations ChatConversation[]
+  characterLoadout  CharacterLoadout?
 }
 
 model Room {
@@ -225,4 +226,69 @@ model SessionAttempt {
 
   session CampaignSession @relation(fields: [sessionId], references: [id])
   clue    Clue            @relation(fields: [clueId], references: [id])
+}
+
+// One row per user - the character's currently selected part for each of the 4 fixed body slots
+// (Head/Body/Arm/Leg), matching Unity's own CharacterPartRegistryAsset.BodyPartSlot enum and
+// CharacterCustomizationController's CharacterLoadout/PartSelection shape exactly (see the game
+// repo's character-customization.md doc).
+//
+// DELIBERATELY DOES NOT STORE THE PART CATALOG ITSELF - no display names, no mesh/material
+// references, nothing about what these options actually ARE. CharacterPartRegistryAsset inside the
+// Unity project is the single source of truth for that, and the actual picking UI (the Previous/
+// Next buttons) runs inside the embedded Unity customization scene, not on this website - so this
+// table only ever needs to remember the RESULT of that picking, per account, to hand back to Unity
+// via CharacterCustomizationWebBridge.ApplyLoadoutJson() (as JSON: {"parts":[{"slot":"Head",
+// "optionId":"head002"}, ...]}) the next time this user plays.
+// Admin-authored, extensible catalog of character models for the website's Customize Character
+// scene (see CharacterCustomizer3D.jsx) - one row per uploaded GLB. Unlike VaultTemplate, nothing
+// here gates what a teacher/student can do; it's purely the picker's data source, so adding a new
+// option is an admin upload instead of a code change + deploy. orderNumber's lowest value is
+// always the one shown before any customization (matches "base.glb" being first today).
+model CharacterSet {
+  id          Int      @id @default(autoincrement())
+  label       String // shown in the picker, e.g. "Pirate", "Woman", "Robot"
+  glbFilename String @unique // served from server's /uploads/character-sets/<this> - see routes/characterSets.js
+  orderNumber Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  slots CharacterSetSlot[]
+}
+
+// One body-part mapping for a CharacterSet, e.g. { slot: "Head", meshName: "Head2" }. meshName is
+// the exact node name found inside that set's GLB - admin-assigned at upload time from whatever
+// names the file actually contains (sets aren't guaranteed to follow any naming convention, see
+// character-customization project notes). optionId is the stable string handed to
+// CharacterLoadout/CharacterCustomizationWebBridge/Unity's own registry - once created it never
+// changes, even if the set's label or order does, since a student's saved loadout refers to it.
+model CharacterSetSlot {
+  id             Int    @id @default(autoincrement())
+  characterSetId Int
+  slot           String // "Head" | "Body" | "Arm" | "Leg" - matches Unity's BodyPartSlot names
+  meshName       String
+  optionId       String @unique
+
+  characterSet CharacterSet @relation(fields: [characterSetId], references: [id], onDelete: Cascade)
+
+  @@unique([characterSetId, slot])
+}
+
+model CharacterLoadout {
+  id     Int @id @default(autoincrement())
+  userId Int @unique
+
+  // Each matches a PartOption.id from Unity's CharacterPartRegistryAsset for that slot (e.g.
+  // "head002") - plain strings, not validated against the Registry here, since this server has no
+  // way to know what IDs currently exist in the Unity project's own asset. Nullable so a user who
+  // hasn't customized a given slot yet just falls back to whatever the character prefab starts
+  // with, rather than needing a placeholder value.
+  headOptionId String?
+  bodyOptionId String?
+  armOptionId  String?
+  legOptionId  String?
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
 }

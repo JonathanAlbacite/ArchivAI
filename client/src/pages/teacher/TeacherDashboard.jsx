@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, DoorOpen, Sparkles } from "lucide-react";
+import { Users, DoorOpen, Sparkles, Palette } from "lucide-react";
 import Navbar from "../../components/Navbar";
 import EmberField from "../../components/EmberField";
 import dashboard_bg from "../../assets/dashboard_bg.png";
@@ -138,24 +138,47 @@ function TeacherDashboard() {
                 <p style={{ color: "#C9BBA6", fontFamily: fonts.body, fontSize: "14px", margin: "6px 0 0 0" }}>Manage your rooms – each has its own students & campaigns.</p>
               </div>
 
-              {/* Create room button */}
-              <button
-                onClick={() => setShowModal(true)}
-                style={{
-                  background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`,
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "18px",
-                  padding: "13px 26px",
-                  fontFamily: fonts.body,
-                  fontWeight: "600",
-                  fontSize: "15px",
-                  cursor: "pointer",
-                  animation: "glowPulse 3s ease-in-out infinite",
-                }}
-              >
-                + Create Room
-              </button>
+              {/* Customize Character + Create room buttons */}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <button
+                  onClick={() => navigate("/teacher/character")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "12px 20px",
+                    background: "transparent",
+                    color: colors.brassBright,
+                    border: `1px solid ${colors.brass}`,
+                    borderRadius: "18px",
+                    fontFamily: fonts.body,
+                    fontWeight: "600",
+                    fontSize: "15px",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Palette size={16} /> Customize Character
+                </button>
+
+                <button
+                  onClick={() => setShowModal(true)}
+                  style={{
+                    background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`,
+                    color: "#FFFFFF",
+                    border: "none",
+                    borderRadius: "18px",
+                    padding: "13px 26px",
+                    fontFamily: fonts.body,
+                    fontWeight: "600",
+                    fontSize: "15px",
+                    cursor: "pointer",
+                    animation: "glowPulse 3s ease-in-out infinite",
+                  }}
+                >
+                  + Create Room
+                </button>
+              </div>
 
             </div>
 

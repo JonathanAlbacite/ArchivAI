@@ -5,6 +5,11 @@ import { protect, teacherOnly, studentOnly } from "../middleware/auth.js";
 
 const router = express.Router();
 
+// Admin, in "Teacher Mode" (see client's AdminDashboard), is treated exactly like a TEACHER for
+// every ownership check below - whatever an admin creates here is owned by their own account id,
+// same as a real teacher's would be, so this never leaks another teacher's rooms to them.
+const actsAsTeacher = (role) => role === "TEACHER" || role === "ADMIN";
+
 // Teacher: Create room
 router.post("/", protect, teacherOnly, async (req, res) => {
   const { name, description } = req.body;
@@ -21,7 +26,7 @@ router.post("/", protect, teacherOnly, async (req, res) => {
 // Student: Get all enrolled rooms
 router.get("/", protect, async (req, res) => {
   try {
-    if (req.user.role === "TEACHER") {
+    if (actsAsTeacher(req.user.role)) {
       const rooms = await prisma.room.findMany({
         where: { teacherId: req.user.id },
         include: {
@@ -68,7 +73,7 @@ router.get("/:id", protect, async (req, res) => {
 
     if (!room) return res.status(404).json({ message: "Room not found" });
 
-    if (req.user.role === "TEACHER") {
+    if (actsAsTeacher(req.user.role)) {
       if (room.teacherId !== req.user.id)
         return res.status(403).json({ message: "Access denied" });
     } else if (req.user.role === "STUDENT") {
@@ -177,7 +182,7 @@ router.get("/:id/active-campaign", protect, async (req, res) => {
 
     if (!room) return res.status(404).json({ message: "Room not found" });
 
-    if (req.user.role === "TEACHER") {
+    if (actsAsTeacher(req.user.role)) {
       if (room.teacherId !== req.user.id)
         return res.status(403).json({ message: "Access denied" });
     } else if (req.user.role === "STUDENT") {
@@ -213,7 +218,7 @@ router.patch("/:id/active-campaign", protect, async (req, res) => {
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room) return res.status(404).json({ message: "Room not found" });
 
-    if (req.user.role === "TEACHER") {
+    if (actsAsTeacher(req.user.role)) {
       if (room.teacherId !== req.user.id)
         return res.status(403).json({ message: "Access denied" });
     } else if (req.user.role === "STUDENT") {

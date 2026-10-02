@@ -5,9 +5,13 @@ import TeacherDashboard from "./pages/teacher/TeacherDashboard";
 import RoomPage from "./pages/teacher/RoomPage";
 import StudentDashboard from "./pages/student/StudentDashboard";
 import StudentRoomPage from "./pages/student/StudentRoomPage";
+import StudentCharacterCustomization from "./pages/student/StudentCharacterCustomization";
+import TeacherCharacterCustomization from "./pages/teacher/TeacherCharacterCustomization";
 import TeacherChatWidget from "./components/teacher/TeacherChatWidget";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminVaultEditor from "./pages/admin/AdminVaultEditor";
+import AdminCharacterSets from "./pages/admin/AdminCharacterSets";
+import AdminCharacterCustomization from "./pages/admin/AdminCharacterCustomization";
 
 // Wraps every teacher route so the chat widget mounts once and survives
 // navigation between teacher pages (Messenger-style persistent bubble)
@@ -30,11 +34,15 @@ function App() {
         <Route element={<TeacherLayout />}>
           <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
           <Route path="/teacher/room/:id" element={<RoomPage />} />
+          <Route path="/teacher/character" element={<TeacherCharacterCustomization />} />
         </Route>
         <Route path="/student/dashboard" element={<StudentDashboard />} />
         <Route path="/student/room/:id" element={<StudentRoomPage />} />
+        <Route path="/student/character" element={<StudentCharacterCustomization />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/vault/:scene" element={<AdminVaultEditor />} />
+        <Route path="/admin/character-sets" element={<AdminCharacterSets />} />
+        <Route path="/admin/character" element={<AdminCharacterCustomization />} />
       </Routes>
     </BrowserRouter>
   );

@@ -5,6 +5,7 @@ import EmberField from "../../components/EmberField";
 import dashboard_bg from "../../assets/dashboard_bg.png";
 import { colors, fonts } from "../../theme";
 import { SCENE_LIST } from "../../scenes";
+import { Users, Palette, DoorOpen } from "lucide-react";
 
 const STATUS_META = {
   published: { label: "Published", color: colors.success, bg: colors.successBg },
@@ -88,12 +89,84 @@ function AdminDashboard() {
           }}
         >
           <div style={{ padding: "40px" }}>
-            <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.brass }}>
-              ADMIN DASHBOARD
-            </p>
-            <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "34px", color: colors.brassBright, margin: 0 }}>
-              Vault Templates
-            </h1>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px" }}>
+              <div>
+                <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.brass }}>
+                  ADMIN DASHBOARD
+                </p>
+                <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "34px", color: colors.brassBright, margin: 0 }}>
+                  Vault Templates
+                </h1>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <button
+                  onClick={() => navigate("/admin/character-sets")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "10px 18px",
+                    background: "transparent",
+                    color: colors.brassBright,
+                    border: `1px solid ${colors.brass}`,
+                    borderRadius: "16px",
+                    fontFamily: fonts.body,
+                    fontWeight: "600",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Users size={15} /> Character Sets
+                </button>
+
+                <button
+                  onClick={() => navigate("/admin/character")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "10px 18px",
+                    background: "transparent",
+                    color: colors.brassBright,
+                    border: `1px solid ${colors.brass}`,
+                    borderRadius: "16px",
+                    fontFamily: fonts.body,
+                    fontWeight: "600",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <Palette size={15} /> Customize Character
+                </button>
+
+                {/* Drops the admin account into the real Teacher dashboard (room/campaign setup,
+                    lesson-module generation, the chat assistant) - see teacherOnly in
+                    server/middleware/auth.js, which now lets ADMIN through everywhere a TEACHER
+                    can go, so this needs no separate teacher test account. */}
+                <button
+                  onClick={() => navigate("/teacher/dashboard")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "10px 18px",
+                    background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`,
+                    color: "#FFFFFF",
+                    border: "none",
+                    borderRadius: "16px",
+                    fontFamily: fonts.body,
+                    fontWeight: "600",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  <DoorOpen size={15} /> Teacher Mode
+                </button>
+              </div>
+            </div>
             <p style={{ color: "#C9BBA6", fontFamily: fonts.body, fontSize: "14px", margin: "6px 0 0 0", maxWidth: "640px" }}>
               Design the question-set structure for each vault. Once you publish a vault's template, every
               teacher creating a campaign there must follow that same sequence of clue types — they'll fill in

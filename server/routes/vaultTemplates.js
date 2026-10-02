@@ -1,6 +1,7 @@
 import express from "express";
 import prisma from "../lib/prisma.js";
 import { protect, adminOnly } from "../middleware/auth.js";
+import { exportVaultTemplatesSnapshot } from "../lib/vaultTemplatesExport.js";
 
 const router = express.Router();
 
@@ -84,6 +85,16 @@ router.put("/admin/vault-templates/:scene", protect, adminOnly, async (req, res)
       where: { scene },
       include: { slots: { orderBy: { orderNumber: "asc" } } },
     });
+
+    // Keeps prisma/vaultTemplatesSeed.json in sync with every save, so it's always ready to commit
+    // - see vaultTemplatesExport.js. A failure here never fails the save itself; the admin's draft
+    // is already written above.
+    try {
+      await exportVaultTemplatesSnapshot();
+    } catch (exportErr) {
+      console.error("[vaultTemplates] Failed to export seed snapshot:", exportErr);
+    }
+
     res.json(updated);
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
@@ -103,6 +114,14 @@ router.patch("/admin/vault-templates/:scene/publish", protect, adminOnly, async 
       return res.status(400).json({ message: "Add at least one slot before publishing" });
 
     const updated = await prisma.vaultTemplate.update({ where: { scene }, data: { isPublished: true } });
+
+    // See the save route above - keeps the committed-to-git seed file in sync with every publish.
+    try {
+      await exportVaultTemplatesSnapshot();
+    } catch (exportErr) {
+      console.error("[vaultTemplates] Failed to export seed snapshot:", exportErr);
+    }
+
     res.json(updated);
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
@@ -121,6 +140,14 @@ router.patch("/admin/vault-templates/:scene/unpublish", protect, adminOnly, asyn
     if (!template) return res.status(404).json({ message: "No template found for this vault yet" });
 
     const updated = await prisma.vaultTemplate.update({ where: { scene }, data: { isPublished: false } });
+
+    // See the save route above - keeps the committed-to-git seed file in sync with every unpublish.
+    try {
+      await exportVaultTemplatesSnapshot();
+    } catch (exportErr) {
+      console.error("[vaultTemplates] Failed to export seed snapshot:", exportErr);
+    }
+
     res.json(updated);
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
