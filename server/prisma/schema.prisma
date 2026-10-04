@@ -244,7 +244,11 @@ model SessionAttempt {
 // scene (see CharacterCustomizer3D.jsx) - one row per uploaded GLB. Unlike VaultTemplate, nothing
 // here gates what a teacher/student can do; it's purely the picker's data source, so adding a new
 // option is an admin upload instead of a code change + deploy. orderNumber's lowest value is
-// always the one shown before any customization (matches "base.glb" being first today).
+// always the one shown before any customization (matches "base.glb" being first today) - that
+// first set is the "base" look, and renumberOptionIds() in routes/characterSets.js automatically
+// gives its slots the "000" optionIds (head000, body000, ...). Unity's own registry is 1-indexed
+// (its first real option is "head001"), so "000" never matches anything there and Unity leaves
+// that part showing the character prefab's own default mesh.
 model CharacterSet {
   id          Int      @id @default(autoincrement())
   label       String // shown in the picker, e.g. "Pirate", "Woman", "Robot"

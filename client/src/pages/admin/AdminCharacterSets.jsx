@@ -19,6 +19,21 @@ const SLOT_NAMES = ["Head", "Body", "Arm", "Leg"];
 // real Unity gameplay build until someone also imports a matching FBX into the Unity project and
 // adds it to CharacterPartRegistryAsset by hand (needs the Unity Editor, can't be done from a
 // browser upload) - see character-customization project notes.
+//
+// Each slot's optionId - the string actually sent to Unity/CharacterLoadout for that slot's part
+// (shown below next to its mesh name) - is auto-generated server-side to already match whatever
+// Unity's own CharacterPartRegistryEditor.cs will auto-generate for that slot's Nth option
+// (head001, head002, ...). That only holds if options are added in the same order on both sides,
+// though, so each one also has a pencil icon to edit it directly - type in whatever Unity's
+// registry is actually using for that option (see routes/characterSets.js's own
+// PATCH /admin/character-sets/:id/slots/:slotId) if the two ever drift out of sync.
+//
+// THE FIRST SET IN THE LIST IS THE BASE LOOK, AUTOMATICALLY - the server gives its slots the "000"
+// ids (head000, body000, ...) and numbers the rest 001, 002, ... in list order, so moving a set to
+// the top (the arrows) makes it the base. "000" is never something Unity's own registry
+// auto-generates, so Unity's SetPart() doesn't recognize it and just leaves that part showing
+// whatever mesh the character prefab already starts with - the game's own default look, with zero
+// Unity-side changes needed.
 function AdminCharacterSets() {
   const navigate = useNavigate();
 
@@ -34,6 +49,12 @@ function AdminCharacterSets() {
 
   const [editingId, setEditingId] = useState(null);
   const [editLabel, setEditLabel] = useState("");
+
+  // Same editing pattern as editingId/editLabel above, but for one slot's optionId at a time -
+  // keyed by "<setId>:<slotRowId>" since a set can have up to 4 editable IDs at once (one per
+  // Head/Body/Arm/Leg), not just one label.
+  const [editingOptionKey, setEditingOptionKey] = useState(null);
+  const [editOptionIdValue, setEditOptionIdValue] = useState("");
 
   const token = localStorage.getItem("token");
   const authHeaders = { Authorization: `Bearer ${token}` };
@@ -149,6 +170,36 @@ function AdminCharacterSets() {
         return;
       }
       setEditingId(null);
+      await fetchSets();
+    } catch (err) {
+      console.error(err);
+      alert("Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Overrides one slot's optionId directly - see PATCH /admin/character-sets/:id/slots/:slotId's
+  // own header for why this exists (the auto-generated ID can drift out of sync with Unity's own
+  // registry if options are ever added out of order on one side).
+  const handleUpdateOptionId = async (setId, slotRowId) => {
+    if (!editOptionIdValue.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/admin/character-sets/${setId}/slots/${slotRowId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...authHeaders },
+          body: JSON.stringify({ optionId: editOptionIdValue }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message);
+        return;
+      }
+      setEditingOptionKey(null);
       await fetchSets();
     } catch (err) {
       console.error(err);
@@ -324,8 +375,27 @@ function AdminCharacterSets() {
                         </>
                       ) : (
                         <>
-                          <span style={{ fontFamily: fonts.body, fontSize: "14px", color: "#EFE6D6", fontWeight: "600", flex: 1 }}>
+                          <span style={{ fontFamily: fonts.body, fontSize: "14px", color: "#EFE6D6", fontWeight: "600", flex: 1, display: "flex", alignItems: "center", gap: "8px" }}>
                             {set.label}
+                            {/* Label only - the base is simply whichever set is first (see this file's
+                                header), so there's nothing to click or save here. */}
+                            {i === 0 && (
+                              <span
+                                style={{
+                                  fontFamily: fonts.body,
+                                  fontSize: "10px",
+                                  fontWeight: "700",
+                                  letterSpacing: "0.5px",
+                                  color: colors.obsidian,
+                                  background: colors.brassBright,
+                                  borderRadius: "6px",
+                                  padding: "2px 7px",
+                                }}
+                                title="First set - sends the 000 ids, so Unity keeps its own default mesh"
+                              >
+                                BASE
+                              </span>
+                            )}
                           </span>
                           <button
                             onClick={() => { setEditingId(set.id); setEditLabel(set.label); }}
@@ -352,12 +422,62 @@ function AdminCharacterSets() {
                       )}
                     </div>
 
-                    <p style={{ fontFamily: fonts.body, fontSize: "12px", color: "#B9AC96", margin: "8px 0 0 28px" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "16px", margin: "8px 0 0 28px" }}>
                       {SLOT_NAMES.map((slot) => {
                         const match = set.slots.find((s) => s.slot === slot);
-                        return `${slot}: ${match ? match.meshName : "—"}`;
-                      }).join("   ")}
-                    </p>
+                        // Keyed by set + the slot ROW's own id (not the slot name), since a set
+                        // only ever has one row per slot name but this key still has to be
+                        // globally unique across every set's own slots on the page.
+                        const editKey = match ? `${set.id}:${match.id}` : null;
+
+                        return (
+                          <div key={slot} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span style={{ fontFamily: fonts.body, fontSize: "12px", color: "#B9AC96" }}>
+                              {slot}: {match ? match.meshName : "—"}
+                            </span>
+
+                            {match && (
+                              editingOptionKey === editKey ? (
+                                <>
+                                  <input
+                                    value={editOptionIdValue}
+                                    onChange={(e) => setEditOptionIdValue(e.target.value)}
+                                    style={{ ...fieldStyle, width: "92px", padding: "4px 8px", fontSize: "12px" }}
+                                    autoFocus
+                                  />
+                                  <button
+                                    onClick={() => handleUpdateOptionId(set.id, match.id)}
+                                    disabled={saving}
+                                    style={iconButtonStyle(saving)}
+                                    title="Save ID"
+                                  >
+                                    <Check size={13} />
+                                  </button>
+                                  <button onClick={() => setEditingOptionKey(null)} style={iconButtonStyle(false)} title="Cancel">
+                                    <X size={13} />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  {/* The exact string Unity's registry has to use for this option too - see
+                                      this file's own NOT HANDLED HERE note. */}
+                                  <span style={{ fontFamily: fonts.body, fontSize: "12px", color: "#8A7B64" }}>
+                                    (id: {match.optionId})
+                                  </span>
+                                  <button
+                                    onClick={() => { setEditingOptionKey(editKey); setEditOptionIdValue(match.optionId); }}
+                                    style={iconButtonStyle(false)}
+                                    title="Edit ID - must match the ID Unity's CharacterPartRegistryAsset uses for this option"
+                                  >
+                                    <Pencil size={11} />
+                                  </button>
+                                </>
+                              )
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
 
