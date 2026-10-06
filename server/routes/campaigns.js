@@ -1,6 +1,6 @@
 import express from "express";
 import prisma from "../lib/prisma.js";
-import { protect, teacherOnly, studentOnly } from "../middleware/auth.js";
+import { protect, teacherOnly } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -269,6 +269,7 @@ router.delete("/campaigns/:id", protect, teacherOnly, async (req, res) => {
       where: { OR: [{ clueId: { in: clueIds } }, { sessionId: { in: sessionIds } }] },
     });
     await prisma.campaignSession.deleteMany({ where: { campaignId } });
+    await prisma.campaignProgress.deleteMany({ where: { campaignId } });
     await prisma.clue.deleteMany({ where: { campaignId } });
     await prisma.campaign.delete({ where: { id: campaignId } });
 
@@ -391,8 +392,9 @@ router.get("/campaigns/:id/load", protect, async (req, res) => {
   }
 });
 
-// Unity: Submit student results for a campaign
-router.post("/campaigns/:id/results", protect, studentOnly, async (req, res) => {
+// Unity: Submit results for a campaign. Any logged-in account that plays the game (student,
+// teacher or admin) can submit; the user is taken from the token.
+router.post("/campaigns/:id/results", protect, async (req, res) => {
   const campaignId = parseInt(req.params.id);
   const { totalTime, rank, completedAt, attempts } = req.body;
 
@@ -415,7 +417,83 @@ router.post("/campaigns/:id/results", protect, studentOnly, async (req, res) => 
       include: { attempts: true },
     });
 
+    // The run is finished, so the saved checkpoint progress is marked completed.
+    await prisma.campaignProgress.updateMany({
+      where: { campaignId, studentId: req.user.id },
+      data: { status: "COMPLETED" },
+    });
+
     res.status(201).json(session);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Unity: Load the logged-in user's saved checkpoint progress for a campaign (any role that can
+// play the game: student, teacher or admin).
+// Always answers 200 - hasProgress is false when nothing is saved yet, so the game does not
+// have to treat "no save" as an error.
+router.get("/campaigns/:id/progress", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const progress = await prisma.campaignProgress.findUnique({
+      where: { campaignId_studentId: { campaignId, studentId: req.user.id } },
+    });
+
+    if (!progress) return res.json({ hasProgress: false });
+
+    res.json({
+      hasProgress: true,
+      status: progress.status,
+      lastCheckpointId: progress.lastCheckpointId,
+      reachedCheckpointIds: Array.isArray(progress.reachedCheckpointIds) ? progress.reachedCheckpointIds : [],
+      updatedAt: progress.updatedAt,
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Unity: Save the logged-in user's checkpoint progress (called each time a checkpoint is reached;
+// any role that can play the game). The user is taken from the token, never from the request body. A finished run that is
+// played again goes back to IN_PROGRESS with the new checkpoints.
+router.put("/campaigns/:id/progress", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+  const { lastCheckpointId, reachedCheckpointIds } = req.body;
+
+  try {
+    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+
+    const ids = Array.isArray(reachedCheckpointIds)
+      ? reachedCheckpointIds.filter((id) => typeof id === "string")
+      : [];
+    const last = typeof lastCheckpointId === "string" && lastCheckpointId ? lastCheckpointId : null;
+
+    const progress = await prisma.campaignProgress.upsert({
+      where: { campaignId_studentId: { campaignId, studentId: req.user.id } },
+      create: {
+        campaignId,
+        studentId: req.user.id,
+        lastCheckpointId: last,
+        reachedCheckpointIds: ids,
+        status: "IN_PROGRESS",
+      },
+      update: {
+        lastCheckpointId: last,
+        reachedCheckpointIds: ids,
+        status: "IN_PROGRESS",
+      },
+    });
+
+    res.json({
+      hasProgress: true,
+      status: progress.status,
+      lastCheckpointId: progress.lastCheckpointId,
+      reachedCheckpointIds: ids,
+      updatedAt: progress.updatedAt,
+    });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

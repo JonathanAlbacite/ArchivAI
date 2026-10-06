@@ -18,6 +18,7 @@ model User {
   taughtRooms       Room[]             @relation("TeacherRooms")
   enrolledRooms     RoomStudent[]
   sessions          CampaignSession[]
+  campaignProgress  CampaignProgress[]
   lessonModules     LessonModule[]
   chatConversations ChatConversation[]
   characterLoadout  CharacterLoadout?
@@ -67,6 +68,7 @@ model Campaign {
   room     Room              @relation("RoomCampaigns", fields: [roomId], references: [id])
   clues    Clue[]
   sessions CampaignSession[]
+  progress CampaignProgress[]
 
   // Opposite side of Room.activeCampaign - rooms currently pointing at
   // this campaign as their "live" one. A campaign can be the active
@@ -165,6 +167,27 @@ model CampaignSession {
   campaign Campaign        @relation(fields: [campaignId], references: [id])
   student  User            @relation(fields: [studentId], references: [id])
   attempts SessionAttempt[]
+}
+
+// Where a student currently is in a campaign. One row per student per campaign, updated each
+// time the game reaches a checkpoint, so progress survives closing the game or switching
+// devices. Unlike CampaignSession (created only when a run is finished), this row exists while
+// the run is still going. No position is stored - the game finds the player's spot from the
+// checkpoint id.
+model CampaignProgress {
+  id                   Int      @id @default(autoincrement())
+  campaignId           Int
+  studentId            Int
+  lastCheckpointId     String?
+  reachedCheckpointIds Json
+  status               String   @default("IN_PROGRESS") // "IN_PROGRESS" or "COMPLETED"
+  startedAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id])
+  student  User     @relation(fields: [studentId], references: [id])
+
+  @@unique([campaignId, studentId])
 }
 
 model LessonModule {
