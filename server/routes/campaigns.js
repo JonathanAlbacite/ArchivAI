@@ -1,4 +1,8 @@
 import express from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs/promises";
+import fssync from "fs";
 import prisma from "../lib/prisma.js";
 import { protect, teacherOnly, studentOnly } from "../middleware/auth.js";
 
@@ -10,6 +14,37 @@ const findCampaignWithRoom = (id) =>
     where: { id },
     include: { room: { select: { teacherId: true } } },
   });
+
+// A campaign's one attached resource file (e.g. a handout) — a broader set
+// than the lesson-notes upload in lessonModules.js (documentText.js's
+// ALLOWED_EXTENSIONS), since this is a file for students to read/download
+// as-is rather than text to extract and feed to the AI.
+const ATTACHMENT_UPLOAD_DIR = path.join(process.cwd(), "uploads", "campaign-attachments");
+const ALLOWED_ATTACHMENT_EXTENSIONS = [
+  ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".png", ".jpg", ".jpeg", ".zip",
+];
+
+fssync.mkdirSync(ATTACHMENT_UPLOAD_DIR, { recursive: true });
+
+const attachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, ATTACHMENT_UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
+
+const uploadAttachment = multer({
+  storage: attachmentStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_ATTACHMENT_EXTENSIONS.includes(ext)) {
+      return cb(new Error(`Only ${ALLOWED_ATTACHMENT_EXTENSIONS.join(", ")} files are allowed`));
+    }
+    cb(null, true);
+  },
+});
 
 // Teacher: Create campaign
 router.post("/campaigns", protect, teacherOnly, async (req, res) => {
@@ -157,8 +192,121 @@ router.patch("/campaigns/:id", protect, teacherOnly, async (req, res) => {
   }
 });
 
+// Teacher: Attach (or replace) a campaign's resource file. Allowed on
+// published campaigns too — unlike title/description/scene, swapping the
+// handout doesn't affect any clue a student may already be mid-attempt on.
+router.post("/campaigns/:id/attachment", protect, teacherOnly, (req, res) => {
+  uploadAttachment.single("file")(req, res, async (uploadErr) => {
+    if (uploadErr instanceof multer.MulterError) {
+      if (uploadErr.code === "LIMIT_FILE_SIZE")
+        return res.status(400).json({ message: "File exceeds the 10MB limit" });
+      return res.status(400).json({ message: uploadErr.message });
+    }
+    if (uploadErr) return res.status(400).json({ message: uploadErr.message });
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+    const campaignId = parseInt(req.params.id);
+
+    try {
+      const campaign = await findCampaignWithRoom(campaignId);
+      if (!campaign) {
+        await fs.unlink(req.file.path).catch(() => {});
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+      if (campaign.room.teacherId !== req.user.id) {
+        await fs.unlink(req.file.path).catch(() => {});
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Replacing an existing attachment — remove the old file from disk so
+      // it doesn't linger as an orphan now that no row points to it.
+      if (campaign.attachmentPath) {
+        await fs.unlink(campaign.attachmentPath).catch(() => {});
+      }
+
+      const updated = await prisma.campaign.update({
+        where: { id: campaignId },
+        data: {
+          attachmentFilename: req.file.originalname,
+          attachmentPath: req.file.path,
+          attachmentMimeType: req.file.mimetype,
+        },
+      });
+
+      res.status(201).json({
+        attachmentFilename: updated.attachmentFilename,
+        attachmentMimeType: updated.attachmentMimeType,
+      });
+    } catch (err) {
+      await fs.unlink(req.file.path).catch(() => {});
+      res.status(500).json({ message: "Server error", error: err.message });
+    }
+  });
+});
+
+// Teacher: Remove a campaign's resource file
+router.delete("/campaigns/:id/attachment", protect, teacherOnly, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+    if (campaign.room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+    if (!campaign.attachmentPath)
+      return res.status(400).json({ message: "This campaign has no attachment" });
+
+    await fs.unlink(campaign.attachmentPath).catch(() => {});
+
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { attachmentFilename: null, attachmentPath: null, attachmentMimeType: null },
+    });
+
+    res.json({ message: "Attachment removed" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher (owner) or student: Download a campaign's attached resource file.
+// The owner always can; anyone else only once the campaign is published AND
+// they're enrolled in its room — the file is a class handout, not public.
+router.get("/campaigns/:id/attachment", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+
+    const isOwner = campaign.room.teacherId === req.user.id;
+    if (!isOwner) {
+      const enrolled =
+        campaign.isPublished &&
+        (await prisma.roomStudent.findFirst({
+          where: { roomId: campaign.roomId, studentId: req.user.id },
+        }));
+      if (!enrolled) return res.status(404).json({ message: "Campaign not found" });
+    }
+    if (!campaign.attachmentPath)
+      return res.status(404).json({ message: "This campaign has no attachment" });
+
+    res.download(campaign.attachmentPath, campaign.attachmentFilename, (err) => {
+      // A response may already be partially sent by the time a stream error
+      // fires — res.download only lets us react, not prevent that.
+      if (err && !res.headersSent) res.status(404).json({ message: "Attachment file not found" });
+    });
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 // Teacher: Delete a campaign, along with its clues, play sessions, and
-// session attempts (all RESTRICT foreign keys, so children must go first).
+// session attempts — the schema's onDelete: Cascade relations (see
+// schema.prisma: Clue/CampaignSession -> Campaign, SessionAttempt ->
+// Clue/CampaignSession) mean a single delete here is enough; MySQL handles
+// the rest. Its attachment file (if any) isn't a DB row, so it's removed
+// from disk separately, after the row delete succeeds.
 router.delete("/campaigns/:id", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);
 
@@ -168,17 +316,8 @@ router.delete("/campaigns/:id", protect, teacherOnly, async (req, res) => {
     if (campaign.room.teacherId !== req.user.id)
       return res.status(403).json({ message: "Access denied" });
 
-    const clueIds = (await prisma.clue.findMany({ where: { campaignId }, select: { id: true } })).map((c) => c.id);
-    const sessionIds = (
-      await prisma.campaignSession.findMany({ where: { campaignId }, select: { id: true } })
-    ).map((s) => s.id);
-
-    await prisma.sessionAttempt.deleteMany({
-      where: { OR: [{ clueId: { in: clueIds } }, { sessionId: { in: sessionIds } }] },
-    });
-    await prisma.campaignSession.deleteMany({ where: { campaignId } });
-    await prisma.clue.deleteMany({ where: { campaignId } });
     await prisma.campaign.delete({ where: { id: campaignId } });
+    if (campaign.attachmentPath) await fs.unlink(campaign.attachmentPath).catch(() => {});
 
     res.json({ message: "Campaign deleted" });
   } catch (err) {
@@ -240,7 +379,9 @@ router.get("/campaigns/:id", protect, async (req, res) => {
       orderBy: { orderNumber: "asc" },
     });
 
-    const { room, ...campaignData } = campaign;
+    // attachmentPath is a server-local filesystem path — students/teacher
+    // never need it directly, they hit GET /campaigns/:id/attachment instead.
+    const { room, attachmentPath, ...campaignData } = campaign;
     res.json({ ...campaignData, clues });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });

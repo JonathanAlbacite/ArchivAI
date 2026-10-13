@@ -37,7 +37,7 @@ model Room {
 
 model RoomStudent {
   id        Int      @id @default(autoincrement())
-  room      Room     @relation(fields: [roomId], references: [id])
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   roomId    Int
   student   User     @relation(fields: [studentId], references: [id])
   studentId Int
@@ -56,7 +56,15 @@ model Campaign {
   isPublished Boolean  @default(false)
   createdAt   DateTime @default(now())
 
-  room     Room              @relation(fields: [roomId], references: [id])
+  // A single resource file the teacher can attach (e.g. a handout or
+  // reference PDF) that students can view/download alongside the campaign.
+  // Nullable trio rather than a separate table — one file per campaign is
+  // all the teacher-facing UI supports (see SpellBookModal.jsx).
+  attachmentFilename String?
+  attachmentPath     String?
+  attachmentMimeType String?
+
+  room     Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
   clues    Clue[]
   sessions CampaignSession[]
 }
@@ -68,7 +76,7 @@ model Clue {
   question    String
   answer      String
 
-  campaign Campaign        @relation(fields: [campaignId], references: [id])
+  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   attempts SessionAttempt[]
 }
 
@@ -81,7 +89,7 @@ model CampaignSession {
   totalTime   Int?      // in seconds
   rank        String?
 
-  campaign Campaign        @relation(fields: [campaignId], references: [id])
+  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   student  User            @relation(fields: [studentId], references: [id])
   attempts SessionAttempt[]
 }
@@ -143,6 +151,6 @@ model SessionAttempt {
   attempts  Int     @default(0)
   isSolved  Boolean @default(false)
 
-  session CampaignSession @relation(fields: [sessionId], references: [id])
-  clue    Clue            @relation(fields: [clueId], references: [id])
+  session CampaignSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  clue    Clue            @relation(fields: [clueId], references: [id], onDelete: Cascade)
 }

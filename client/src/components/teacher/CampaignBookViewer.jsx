@@ -1,12 +1,26 @@
 import { useEffect, useState } from "react";
+import { Paperclip, Download } from "lucide-react";
 import BookShell from "../book/BookShell";
 import { colors, fonts } from "../../theme";
 import { getSceneMeta } from "../../scenes";
+import { downloadCampaignAttachment } from "../../lib/downloadCampaignAttachment";
 
 function CampaignBookViewer({ campaignId, onClose }) {
   const [campaign, setCampaign] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pageIndex, setPageIndex] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownloadAttachment = async () => {
+    setDownloading(true);
+    try {
+      await downloadCampaignAttachment(campaign.id, campaign.attachmentFilename);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchCampaign = async () => {
@@ -78,6 +92,21 @@ function CampaignBookViewer({ campaignId, onClose }) {
 
       {campaign.description && (
         <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted, margin: 0 }}>{campaign.description}</p>
+      )}
+
+      {campaign.attachmentFilename && (
+        <button
+          onClick={handleDownloadAttachment}
+          disabled={downloading}
+          title={campaign.attachmentFilename}
+          style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%", marginTop: "16px", padding: "7px 10px", background: "none", border: `1px solid ${colors.parchmentLine}`, borderRadius: "10px", color: colors.ember, fontFamily: fonts.body, fontSize: "12px", fontWeight: "600", cursor: downloading ? "default" : "pointer", opacity: downloading ? 0.6 : 1 }}
+        >
+          <Paperclip size={12} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {campaign.attachmentFilename}
+          </span>
+          <Download size={12} style={{ flexShrink: 0 }} />
+        </button>
       )}
     </div>
   );

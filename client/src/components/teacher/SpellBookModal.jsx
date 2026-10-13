@@ -1,9 +1,13 @@
 import { useState, useRef } from "react";
-import { ChevronLeft, ChevronRight, Trash2, Lock, Sparkles, Check, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Lock, Sparkles, Check, X, Paperclip, FileText } from "lucide-react";
 import EmberField from "../EmberField";
 import { colors, fonts } from "../../theme";
 import { SCENE_LIST, getSceneMeta } from "../../scenes";
 import { SceneBadge } from "../SceneIcon";
+
+const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.zip";
+const ATTACHMENT_EXTENSIONS = ATTACHMENT_ACCEPT.split(",");
+const isAllowedAttachment = (file) => ATTACHMENT_EXTENSIONS.includes(`.${(file.name.split(".").pop() || "").toLowerCase()}`);
 
 const emptyClue = () => ({ question: "", answer: "" });
 const FLIP_MS = 420;
@@ -501,6 +505,39 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   const fileInputRef = useRef(null);
   const reviewing = lessonStep === "review";
 
+  // Campaign resource file — a plain file for students to view/download
+  // (unrelated to the lesson-notes upload above, which is AI clue-generation
+  // input, not something students ever see). No campaign row exists yet on
+  // create, so the chosen file is staged locally and only actually uploaded
+  // once seal() has a real campaignId to attach it to (see seal() below).
+  const [existingAttachment, setExistingAttachment] = useState(
+    campaign?.attachmentFilename ? { filename: campaign.attachmentFilename } : null
+  );
+  const [attachmentFile, setAttachmentFile] = useState(null); // staged File, not yet uploaded
+  const [removeAttachment, setRemoveAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState("");
+  const attachmentInputRef = useRef(null);
+
+  const handleAttachmentChange = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    if (!isAllowedAttachment(file)) {
+      setAttachmentError(`Only ${ATTACHMENT_ACCEPT} files are supported`);
+      return;
+    }
+
+    setAttachmentError("");
+    setAttachmentFile(file);
+    setRemoveAttachment(false);
+  };
+
+  const clearAttachment = () => {
+    setAttachmentFile(null);
+    if (existingAttachment) setRemoveAttachment(true);
+  };
+
   const lastIndex = pages.length;
   const atFrontier = activeIndex === lastIndex;
 
@@ -703,6 +740,32 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
         const cluesData = await cluesRes.json();
         if (!cluesRes.ok) {
           alert(cluesData.message);
+          return false;
+        }
+      }
+
+      if (attachmentFile) {
+        const attachmentForm = new FormData();
+        attachmentForm.append("file", attachmentFile);
+
+        const attachmentRes = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${finalCampaignId}/attachment`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: attachmentForm,
+        });
+        const attachmentData = await attachmentRes.json();
+        if (!attachmentRes.ok) {
+          alert(attachmentData.message);
+          return false;
+        }
+      } else if (removeAttachment && isEditing) {
+        const attachmentRes = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${finalCampaignId}/attachment`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!attachmentRes.ok) {
+          const attachmentData = await attachmentRes.json();
+          alert(attachmentData.message);
           return false;
         }
       }
@@ -982,6 +1045,71 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                         {lessonStep === "error" && (
                           <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.danger, margin: "8px 0 0 0" }}>
                             {lessonError}
+                          </p>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: "22px", paddingTop: "18px", borderTop: `1px dashed ${colors.parchmentLine}` }}>
+                        <label style={labelStyle}>Campaign Resource File</label>
+                        <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "6px 0 10px 0" }}>
+                          Attach a file (handout, reference sheet, etc.) for students to view alongside this campaign.
+                        </p>
+
+                        <input
+                          ref={attachmentInputRef}
+                          type="file"
+                          accept={ATTACHMENT_ACCEPT}
+                          onChange={handleAttachmentChange}
+                          style={{ display: "none" }}
+                        />
+
+                        {attachmentFile || (existingAttachment && !removeAttachment) ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", borderRadius: "4px", border: `1px solid ${colors.parchmentLine}`, backgroundColor: colors.parchmentPanel }}>
+                            <FileText size={14} color={colors.ember} style={{ flexShrink: 0 }} />
+                            <span style={{ flex: 1, fontFamily: fonts.body, fontSize: "12px", color: colors.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {attachmentFile ? attachmentFile.name : existingAttachment.filename}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => attachmentInputRef.current?.click()}
+                              style={{ background: "none", border: "none", cursor: "pointer", color: colors.ember, fontFamily: fonts.body, fontSize: "12px", fontWeight: "600", textDecoration: "underline" }}
+                            >
+                              Replace
+                            </button>
+                            <button
+                              type="button"
+                              onClick={clearAttachment}
+                              title="Remove attachment"
+                              style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex" }}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => attachmentInputRef.current?.click()}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "7px",
+                              padding: "9px 14px",
+                              borderRadius: "4px",
+                              border: `1px solid ${colors.ember}`,
+                              backgroundColor: "transparent",
+                              color: colors.ember,
+                              fontFamily: fonts.body,
+                              fontSize: "13px",
+                              fontWeight: "600",
+                              cursor: "pointer",
+                            }}
+                          >
+                            <Paperclip size={14} /> Attach a File
+                          </button>
+                        )}
+                        {attachmentError && (
+                          <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.danger, margin: "8px 0 0 0" }}>
+                            {attachmentError}
                           </p>
                         )}
                       </div>

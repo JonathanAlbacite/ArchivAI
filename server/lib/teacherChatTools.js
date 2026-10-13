@@ -1,3 +1,4 @@
+import fs from "fs/promises";
 import { SchemaType } from "@google/generative-ai";
 import prisma from "./prisma.js";
 import { generateText } from "./aiProviderChain.js";
@@ -143,6 +144,64 @@ export const functionDeclarations = [
       required: ["campaignId", "clues"],
     },
   },
+  {
+    name: "update_room",
+    description:
+      "Rename an EXISTING room and/or change its description. This writes to the database. Use this — never create_room — whenever the teacher says 'rename', 'edit', 'update', or 'change the name/description of' a room that already exists. Look up its id first with list_rooms_and_campaigns if you don't already have it.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        roomId: { type: SchemaType.INTEGER, description: "The id of the existing room to update" },
+        name: { type: SchemaType.STRING, description: "The room's new name" },
+        description: { type: SchemaType.STRING, description: "The room's new description" },
+      },
+      required: ["roomId"],
+    },
+  },
+  {
+    name: "update_campaign",
+    description:
+      "Edit an EXISTING, still-unpublished campaign's title, description, and/or scene. This writes to the database. Use this — never create_campaign — whenever the teacher says 'rename', 'edit', 'update', or 'change' about a campaign that already exists. Published campaigns can't be edited this way (check isPublished via list_rooms_and_campaigns or get_campaign_details first); tell the teacher it's locked instead of calling this. Look up the campaign's id first if you don't already have it.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        campaignId: { type: SchemaType.INTEGER, description: "The id of the existing campaign to update" },
+        title: { type: SchemaType.STRING, description: "The campaign's new title" },
+        description: { type: SchemaType.STRING, description: "The campaign's new description" },
+        scene: {
+          type: SchemaType.STRING,
+          format: "enum",
+          enum: VALID_SCENES,
+          description: "The campaign's new scene theme",
+        },
+      },
+      required: ["campaignId"],
+    },
+  },
+  {
+    name: "delete_room",
+    description:
+      "Permanently delete a room the teacher owns, along with ALL of its campaigns, clues, students, and play history. This writes to the database and CANNOT be undone. Use this whenever the teacher says 'delete' or 'remove' a room. Look up its id first with list_rooms_and_campaigns if you don't already have it.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        roomId: { type: SchemaType.INTEGER, description: "The id of the room to delete" },
+      },
+      required: ["roomId"],
+    },
+  },
+  {
+    name: "delete_campaign",
+    description:
+      "Permanently delete a campaign the teacher owns, along with all of its clues and play history. This writes to the database and CANNOT be undone. Use this whenever the teacher says 'delete' or 'remove' a campaign. Look up its id first with list_rooms_and_campaigns if you don't already have it.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        campaignId: { type: SchemaType.INTEGER, description: "The id of the campaign to delete" },
+      },
+      required: ["campaignId"],
+    },
+  },
 ];
 
 export const READ_TOOL_NAMES = new Set([
@@ -151,7 +210,54 @@ export const READ_TOOL_NAMES = new Set([
   "generate_clues_from_notes",
 ]);
 
-export const WRITE_TOOL_NAMES = new Set(["create_room", "create_campaign", "apply_generated_clues"]);
+export const WRITE_TOOL_NAMES = new Set([
+  "create_room",
+  "create_campaign",
+  "apply_generated_clues",
+  "update_room",
+  "update_campaign",
+  "delete_room",
+  "delete_campaign",
+]);
+
+// delete_room/delete_campaign are irreversible, so their teacher-facing
+// confirmation summary is computed here from the DB rather than left to the
+// model's own explanatory text (chat.js's SYSTEM_INSTRUCTION_TEXT asks the
+// model to explain itself before any write call, but that's still just
+// prose it generates — for a destructive action, what gets deleted needs to
+// be stated correctly every time, not just usually). Returns null for every
+// other tool, so chat.js falls back to the model's own text unchanged.
+export const buildDeleteConfirmationSummary = async (name, args, teacherId) => {
+  if (name === "delete_room") {
+    const roomId = parseInt(args?.roomId);
+    if (!Number.isInteger(roomId)) return null;
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: { _count: { select: { campaigns: true } } },
+    });
+    if (!room || room.teacherId !== teacherId) return null;
+
+    const count = room._count.campaigns;
+    return `This will permanently delete room "${room.name}" and its ${count} ${count === 1 ? "campaign" : "campaigns"} — this cannot be undone.`;
+  }
+
+  if (name === "delete_campaign") {
+    const campaignId = parseInt(args?.campaignId);
+    if (!Number.isInteger(campaignId)) return null;
+
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      include: { room: { select: { teacherId: true } }, _count: { select: { clues: true } } },
+    });
+    if (!campaign || campaign.room.teacherId !== teacherId) return null;
+
+    const count = campaign._count.clues;
+    return `This will permanently delete campaign "${campaign.title}" and its ${count} ${count === 1 ? "clue" : "clues"} — this cannot be undone.`;
+  }
+
+  return null;
+};
 
 // Every tool is scoped to the authenticated teacher's own data — args never
 // carry a teacherId, and each implementation re-derives ownership from the DB.
@@ -279,5 +385,91 @@ export const toolImplementations = {
     });
 
     return { clues: allClues };
+  },
+
+  update_room: async (args, teacherId) => {
+    const roomId = parseInt(args.roomId);
+    if (!Number.isInteger(roomId)) return { error: "roomId must be an integer" };
+    if (args.name !== undefined && !args.name.trim()) return { error: "name cannot be empty" };
+
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    if (!room || room.teacherId !== teacherId) return { error: "Room not found" };
+
+    const updated = await prisma.room.update({
+      where: { id: roomId },
+      data: {
+        ...(args.name !== undefined && { name: args.name }),
+        ...(args.description !== undefined && { description: args.description }),
+      },
+    });
+
+    return { room: updated };
+  },
+
+  update_campaign: async (args, teacherId) => {
+    const campaignId = parseInt(args.campaignId);
+    if (!Number.isInteger(campaignId)) return { error: "campaignId must be an integer" };
+    if (args.title !== undefined && !args.title.trim()) return { error: "title cannot be empty" };
+
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      include: { room: { select: { teacherId: true } } },
+    });
+    if (!campaign || campaign.room.teacherId !== teacherId) return { error: "Campaign not found" };
+    if (campaign.isPublished) return { error: "Published campaigns can't be edited" };
+
+    const updated = await prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        ...(args.title !== undefined && { title: args.title }),
+        ...(args.description !== undefined && { description: args.description }),
+        ...(args.scene !== undefined && { scene: args.scene }),
+      },
+    });
+
+    return { campaign: updated };
+  },
+
+  // The room's dependents (campaigns, clues, students, sessions) are cleaned
+  // up by the schema's onDelete: Cascade relations (see schema.prisma) —
+  // this only needs to delete the Room row itself.
+  delete_room: async (args, teacherId) => {
+    const roomId = parseInt(args.roomId);
+    if (!Number.isInteger(roomId)) return { error: "roomId must be an integer" };
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: { campaigns: { select: { attachmentPath: true } } },
+    });
+    if (!room || room.teacherId !== teacherId) return { error: "Room not found" };
+
+    await prisma.room.delete({ where: { id: roomId } });
+
+    // Its campaigns' attachment files (if any) aren't DB rows, so they're
+    // removed from disk separately, after the cascade delete succeeds.
+    await Promise.all(
+      room.campaigns.filter((c) => c.attachmentPath).map((c) => fs.unlink(c.attachmentPath).catch(() => {}))
+    );
+
+    return { deletedRoomId: roomId, name: room.name };
+  },
+
+  // The campaign's dependents (clues, sessions, attempts) are cleaned up by
+  // the schema's onDelete: Cascade relations (see schema.prisma) — this
+  // only needs to delete the Campaign row itself.
+  delete_campaign: async (args, teacherId) => {
+    const campaignId = parseInt(args.campaignId);
+    if (!Number.isInteger(campaignId)) return { error: "campaignId must be an integer" };
+
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      include: { room: { select: { teacherId: true } } },
+    });
+    if (!campaign || campaign.room.teacherId !== teacherId) return { error: "Campaign not found" };
+
+    await prisma.campaign.delete({ where: { id: campaignId } });
+    if (campaign.attachmentPath) await fs.unlink(campaign.attachmentPath).catch(() => {});
+
+    return { deletedCampaignId: campaignId, title: campaign.title };
   },
 };

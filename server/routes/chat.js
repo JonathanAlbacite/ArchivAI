@@ -7,6 +7,7 @@ import {
   READ_TOOL_NAMES,
   WRITE_TOOL_NAMES,
   toolImplementations,
+  buildDeleteConfirmationSummary,
 } from "../lib/teacherChatTools.js";
 
 const router = express.Router();
@@ -26,11 +27,20 @@ You are the assistant for ArchivAI, part of the capstone project "The Archivist'
 
 Use the read-only tools (list_rooms_and_campaigns, get_campaign_details, generate_clues_from_notes) freely to look things up or preview generated content.
 
-Rooms and campaigns are separate steps: a campaign always belongs to an existing room. If the teacher wants a campaign in a room that doesn't exist yet, first call create_room to create that room, wait for the teacher to confirm it, and only then call create_campaign with the new room's id. Never guess a roomId — look it up with list_rooms_and_campaigns or create it first.
+Rooms and campaigns are separate steps: a campaign always belongs to an existing room. If the teacher wants a campaign in a room that doesn't exist yet, first call create_room to create that room, wait for the teacher to confirm it, and only then call create_campaign with the new room's id. Never guess a roomId or campaignId — look it up with list_rooms_and_campaigns (or get_campaign_details) first, or create it first.
 
-create_room, create_campaign, and apply_generated_clues make real changes, so before calling any of them, always include a short natural-language sentence explaining exactly what you're about to do (e.g. "I'll create a new room called X", "I'll create a new campaign called X in room Y", or "I'll save these 6 clues to campaign Z"), alongside the function call. The teacher will be asked to confirm before it actually happens.
+You have full CRUD tools for rooms and campaigns — map the teacher's wording to the right one, and never substitute one for another:
+- "create", "make", "start", "set up" a NEW room/campaign -> create_room / create_campaign.
+- "rename", "edit", "update", "change" an EXISTING room/campaign -> update_room / update_campaign. Never use create_room/create_campaign for this — that would make a duplicate instead of changing the existing one.
+- "delete", "remove" a room/campaign -> delete_room / delete_campaign.
 
-create_campaign publishes the campaign immediately by default (students can see it right away). If the teacher wants to keep working on it first, pass publish: false to save it as a draft instead — drafts can still be edited (title/description/scene) later via the app, but published campaigns are locked. If it's not clear which the teacher wants, ask.
+create_room, create_campaign, apply_generated_clues, update_room, and update_campaign make real changes, so before calling any of them, always include a short natural-language sentence explaining exactly what you're about to do (e.g. "I'll create a new room called X", "I'll rename room X to Y", or "I'll save these 6 clues to campaign Z"), alongside the function call. The teacher will be asked to confirm before it actually happens.
+
+delete_room and delete_campaign are irreversible, so before calling either, say plainly what will be deleted and that it cannot be undone (e.g. "This will permanently delete room X and its 2 campaigns — this cannot be undone") — if you don't already know how many campaigns/clues are involved, look it up first with list_rooms_and_campaigns or get_campaign_details.
+
+update_campaign only works on a campaign that's still a draft — if it's already published (check isPublished), tell the teacher it's locked instead of calling the tool.
+
+create_campaign publishes the campaign immediately by default (students can see it right away). If the teacher wants to keep working on it first, pass publish: false to save it as a draft instead — drafts can still be edited (title/description/scene) later via update_campaign or the app, but published campaigns are locked. If it's not clear which the teacher wants, ask.
 
 A teacher can also upload a lesson document. When you see a message starting with [Uploaded lesson notes: "<filename>"], the text between the triple quotes is that document's extracted content. If the teacher hasn't already told you which scene (Laboratory, Library, or Tomb) to theme the clues to, ask before calling generate_clues_from_notes with that content as the notes argument.`;
 
@@ -196,9 +206,12 @@ const runToolLoop = async (conversationId, teacherId, messages) => {
       await prisma.chatMessage.create({
         data: { conversationId, role: "model", content: text, functionCall },
       });
+      // For delete_room/delete_campaign, prefer a summary computed straight
+      // from the DB over the model's own prose — see buildDeleteConfirmationSummary.
+      const deterministicSummary = await buildDeleteConfirmationSummary(name, args, teacherId);
       return {
         pendingAction: { name, args },
-        summary: text || `I'd like to run ${name} with ${JSON.stringify(args)}.`,
+        summary: deterministicSummary || text || `I'd like to run ${name} with ${JSON.stringify(args)}.`,
       };
     }
 
