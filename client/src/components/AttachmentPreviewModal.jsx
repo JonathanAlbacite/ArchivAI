@@ -5,14 +5,24 @@ import { fetchCampaignAttachment, saveFile } from "../lib/downloadCampaignAttach
 
 // Which file types the browser can show inline, keyed by extension (the
 // stored MIME type comes from the uploader's browser, so it's not trusted).
-// Anything else (.doc/.docx/.ppt/.pptx/.zip) gets a "download to open" note.
+// .docx is converted to HTML with mammoth; anything else (.doc/.ppt/.pptx/.zip)
+// gets a "download to open" note.
 const PREVIEW_TYPES = {
   pdf: { kind: "pdf", mime: "application/pdf" },
   png: { kind: "image", mime: "image/png" },
   jpg: { kind: "image", mime: "image/jpeg" },
   jpeg: { kind: "image", mime: "image/jpeg" },
   txt: { kind: "text", mime: "text/plain" },
+  docx: { kind: "docx", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
 };
+
+// Wraps mammoth's HTML in a minimal page so it reads like a document.
+const docxPage = (body) => `<!doctype html><html><head><meta charset="utf-8"><style>
+  body { margin: 0; padding: 32px 40px; font-family: Calibri, Arial, sans-serif; font-size: 15px; line-height: 1.55; color: #222; background: white; }
+  img { max-width: 100%; height: auto; }
+  table { border-collapse: collapse; margin: 12px 0; }
+  td, th { border: 1px solid #ccc; padding: 6px 10px; vertical-align: top; }
+</style></head><body>${body}</body></html>`;
 
 const getPreviewType = (filename = "") =>
   PREVIEW_TYPES[(filename.split(".").pop() || "").toLowerCase()] || null;
@@ -25,6 +35,7 @@ function AttachmentPreviewModal({ campaign, onClose }) {
 
   const [url, setUrl] = useState(null);
   const [text, setText] = useState(null);
+  const [docHtml, setDocHtml] = useState(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -39,6 +50,12 @@ function AttachmentPreviewModal({ campaign, onClose }) {
         const typed = previewType ? new Blob([blob], { type: previewType.mime }) : blob;
         objectUrl = URL.createObjectURL(typed);
         if (previewType?.kind === "text") setText(await blob.text());
+        if (previewType?.kind === "docx") {
+          // Loaded on demand — only students opening a .docx pay for it.
+          const { default: mammoth } = await import("mammoth/mammoth.browser");
+          const { value } = await mammoth.convertToHtml({ arrayBuffer: await blob.arrayBuffer() });
+          setDocHtml(docxPage(value));
+        }
         if (!cancelled) setUrl(objectUrl);
       })
       .catch((err) => !cancelled && setError(err.message));
@@ -63,6 +80,9 @@ function AttachmentPreviewModal({ campaign, onClose }) {
       return <iframe src={url} title={filename} style={{ width: "100%", height: "100%", border: "none", borderRadius: "12px", backgroundColor: "white" }} />;
     if (previewType?.kind === "image")
       return <img src={url} alt={filename} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: "12px" }} />;
+    // sandbox="" — no scripts or navigation from whatever the document contains.
+    if (previewType?.kind === "docx")
+      return <iframe srcDoc={docHtml} sandbox="" title={filename} style={{ width: "100%", height: "100%", border: "none", borderRadius: "12px", backgroundColor: "white" }} />;
     if (previewType?.kind === "text")
       return (
         <pre style={{ width: "100%", height: "100%", margin: 0, padding: "20px", boxSizing: "border-box", overflow: "auto", backgroundColor: colors.parchmentPanel, border: `1px solid ${colors.parchmentLine}`, borderRadius: "12px", fontFamily: "monospace", fontSize: "13px", color: colors.ink, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
