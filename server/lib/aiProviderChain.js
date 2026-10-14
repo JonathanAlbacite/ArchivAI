@@ -107,13 +107,23 @@ const withTimeout = (promise, provider, ms) =>
 // bug in what we're sending, which would fail identically against every
 // provider, so it's surfaced immediately instead of being masked by a
 // fallback that can't actually help.
+//
+// One 400 is treated as retryable despite that: Groq's tool-calling models
+// occasionally emit invalid JSON (or stray text) as a function call's
+// arguments and respond 400 with error.code "tool_use_failed" (groq-sdk's
+// BadRequestError — see node_modules/groq-sdk/core/error.js). That's a
+// per-generation glitch in what THIS provider's model produced, not a
+// malformed request on our end, so — unlike other 400s — the same request
+// plausibly succeeds against the next provider in the chain.
 const isRetryableFailure = (err) => {
   if (err?.isTimeout) return true;
   const status = err?.status;
   const message = err?.message?.toLowerCase() || "";
   if (status === 402 || status === 429 || status === 401 || status === 403 || (status >= 500 && status < 600))
     return true;
+  if (err?.error?.code === "tool_use_failed") return true;
   if (/\b(402|429|401|403|500|502|503|504)\b/.test(message)) return true;
+  if (/tool_use_failed|failed to parse tool call/.test(message)) return true;
   return /rate limit|too many requests|invalid api key|api key not valid|unauthorized|payment required|quota|fetch failed|econnreset|etimedout|network/.test(
     message
   );

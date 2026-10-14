@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { UserPlus, Trash2, BookOpen, Sparkles, Pencil, Wand2, ArrowLeft } from 'lucide-react'
+import { UserPlus, Trash2, BookOpen, Sparkles, Pencil, Wand2, ArrowLeft, Menu, EyeOff, Copy, ChevronDown } from 'lucide-react'
 import dashboard_bg from '../../assets/dashboard_bg.png'
 import Navbar from '../../components/Navbar'
 import EmberField from '../../components/EmberField'
@@ -25,6 +25,12 @@ function RoomPage() {
     const [portalActive, setPortalActive] = useState(false)
     const [gameLoading, setGameLoading] = useState(false)
     const [activeCampaign, setActiveCampaign] = useState(null)
+    const [openMenuId, setOpenMenuId] = useState(null)
+    const [roomMenuOpen, setRoomMenuOpen] = useState(false)
+    const [showEditRoom, setShowEditRoom] = useState(false)
+    const [editRoomName, setEditRoomName] = useState("")
+    const [editRoomDescription, setEditRoomDescription] = useState("")
+    const [focusedField, setFocusedField] = useState(null)
     const navigate = useNavigate()
 
     const fetchRoom = async () => {
@@ -39,6 +45,55 @@ function RoomPage() {
     useEffect(() => {
         fetchRoom()
     }, [id])
+
+    // A click anywhere else closes the campaign / room dropdown menus (their own
+    // buttons stop the click from reaching here).
+    useEffect(() => {
+        const closeMenus = () => {
+            setOpenMenuId(null)
+            setRoomMenuOpen(false)
+        }
+        document.addEventListener("click", closeMenus)
+        return () => document.removeEventListener("click", closeMenus)
+    }, [])
+
+    const handleOpenEditRoom = () => {
+        setRoomMenuOpen(false)
+        setEditRoomName(room?.name || "")
+        setEditRoomDescription(room?.description || "")
+        setShowEditRoom(true)
+    }
+
+    const handleSaveRoom = async () => {
+        if (!editRoomName.trim()) {
+            alert("The room needs a name.")
+            return
+        }
+
+        const token = localStorage.getItem("token")
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/rooms/${id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                body: JSON.stringify({ name: editRoomName.trim(), description: editRoomDescription }),
+            })
+
+            const data = await res.json()
+
+            if (!res.ok) {
+                alert(data.message)
+                return
+            }
+
+            setShowEditRoom(false)
+            fetchRoom()
+
+        } catch (err) {
+            console.error(err)
+            alert("Something went wrong.")
+        }
+    }
 
     const handleAddStudent = async () => {
         const token = localStorage.getItem("token")
@@ -95,6 +150,7 @@ function RoomPage() {
 }
 
     const handleDeleteCampaign = async (campaignId, title) => {
+    setOpenMenuId(null)
     if (!confirm(`Delete "${title}"? This also deletes all its clues and any student play history. This can't be undone.`)) return
 
     const token = localStorage.getItem("token")
@@ -122,6 +178,65 @@ function RoomPage() {
         alert("Something went wrong.")
     }
 }
+
+    // Hides a published campaign from students again. Nothing is deleted - the
+    // clues and every recorded play stay, and the teacher can still open it.
+    const handleUnpublishCampaign = async (campaign) => {
+        setOpenMenuId(null)
+        if (!confirm(`Unpublish "${campaign.title}"? Students will no longer see or play it. Its clues and play history are kept.`)) return
+
+        const token = localStorage.getItem("token")
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${campaign.id}/unpublish`, {
+                method: "PATCH",
+                headers: { "Authorization": `Bearer ${token}` }
+            })
+
+            const data = await res.json()
+
+            if (!res.ok) {
+                alert(data.message)
+                return
+            }
+
+            setRoom(prev => ({
+                ...prev,
+                campaigns: prev.campaigns.map(c => c.id === campaign.id ? { ...c, isPublished: false } : c)
+            }))
+
+        } catch (err) {
+            console.error(err)
+            alert("Something went wrong.")
+        }
+    }
+
+    // "Update campaign" - creates a new unpublished copy (clues included, no
+    // attachment) so the original and its play history stay untouched.
+    const handleUpdateCampaign = async (campaign) => {
+        setOpenMenuId(null)
+        const token = localStorage.getItem("token")
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${campaign.id}/duplicate`, {
+                method: "POST",
+                headers: { "Authorization": `Bearer ${token}` }
+            })
+
+            const data = await res.json()
+
+            if (!res.ok) {
+                alert(data.message)
+                return
+            }
+
+            fetchRoom()
+
+        } catch (err) {
+            console.error(err)
+            alert("Something went wrong.")
+        }
+    }
 
     // Mirrors the Student side's Play flow - marks this campaign as the
     // room's active campaign (same endpoint the Student "Play" button
@@ -191,6 +306,34 @@ function RoomPage() {
         }
     }
 
+    const menuItemStyle = (danger) => ({
+        display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "8px 12px",
+        background: "none", border: "none", borderRadius: "8px",
+        color: danger ? "#D9786F" : "#E5D5BE",
+        fontFamily: fonts.body, fontSize: "12px", fontWeight: "600", textAlign: "left", whiteSpace: "nowrap", cursor: "pointer"
+    })
+
+    const dropdownStyle = {
+        position: "absolute", right: 0, top: "100%", marginTop: "6px", minWidth: "170px", padding: "4px",
+        backgroundColor: colors.obsidian, border: `1px solid ${colors.vaultBorder}`, borderRadius: "12px",
+        boxShadow: "0 12px 30px rgba(0,0,0,0.5)", zIndex: 20
+    }
+
+    const roomInputStyle = (field) => ({
+        width: "100%",
+        padding: "11px 14px",
+        marginTop: "6px",
+        borderRadius: "12px",
+        border: `1px solid ${focusedField === field ? colors.ember : colors.parchmentLine}`,
+        backgroundColor: colors.parchmentPanel,
+        boxSizing: "border-box",
+        fontFamily: fonts.body,
+        fontSize: "14px",
+        color: colors.ink,
+        outline: "none",
+        boxShadow: focusedField === field ? `0 0 0 3px ${colors.ember}33` : "none",
+    })
+
     if (gameLoading && activeCampaign) {
         const sceneMeta = getSceneMeta(activeCampaign.scene)
         return (
@@ -243,7 +386,25 @@ function RoomPage() {
 
                         {/* Room header */}
                         <div style={{ marginBottom: "32px" }}>
-                            <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "32px", color: colors.brassBright, margin: "0 0 8px 0" }}>{room?.name}</h1>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+                                <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "32px", color: colors.brassBright, margin: 0 }}>{room?.name}</h1>
+                                <div style={{ position: "relative" }}>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); setRoomMenuOpen(!roomMenuOpen) }}
+                                        title="Room options"
+                                        style={{ background: "none", border: `1px solid ${colors.vaultBorder}`, borderRadius: "10px", cursor: "pointer", display: "flex", padding: "4px" }}
+                                    >
+                                        <ChevronDown size={16} color="#C9BBA6" />
+                                    </button>
+                                    {roomMenuOpen && (
+                                        <div style={{ ...dropdownStyle, right: "auto", left: 0 }} onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={handleOpenEditRoom} style={menuItemStyle(false)}>
+                                                <Pencil size={13} /> Edit room
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                             <p style={{ fontFamily: fonts.body, fontSize: "14px", color: "#C9BBA6", margin: 0 }}>Room Code: <strong style={{ color: colors.emberBright }}>{room?.roomCode}</strong></p>
                         </div>
 
@@ -325,7 +486,7 @@ function RoomPage() {
                                                         }}>
                                                             {c.isPublished ? "Published" : "Draft"}
                                                         </span>
-                                                        {!c.isPublished && (
+                                                        {!c.isPublished && !((c._count?.sessions || 0) + (c._count?.progress || 0) > 0) && (
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); openEditCampaign(c.id) }}
                                                                 disabled={loadingEditId === c.id}
@@ -335,13 +496,30 @@ function RoomPage() {
                                                                 <Pencil size={14} color="#C9BBA6" />
                                                             </button>
                                                         )}
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); handleDeleteCampaign(c.id, c.title) }}
-                                                            title="Delete campaign"
-                                                            style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex" }}
-                                                        >
-                                                            <Trash2 size={14} color="#C9BBA6" />
-                                                        </button>
+                                                        <div style={{ position: "relative", display: "flex" }}>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); setRoomMenuOpen(false); setOpenMenuId(openMenuId === c.id ? null : c.id) }}
+                                                                title="Campaign options"
+                                                                style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex" }}
+                                                            >
+                                                                <Menu size={16} color="#C9BBA6" />
+                                                            </button>
+                                                            {openMenuId === c.id && (
+                                                                <div style={dropdownStyle} onClick={(e) => e.stopPropagation()}>
+                                                                    {c.isPublished && (
+                                                                        <button onClick={() => handleUnpublishCampaign(c)} style={menuItemStyle(false)}>
+                                                                            <EyeOff size={13} /> Unpublish
+                                                                        </button>
+                                                                    )}
+                                                                    <button onClick={() => handleUpdateCampaign(c)} style={menuItemStyle(false)}>
+                                                                        <Copy size={13} /> Update campaign
+                                                                    </button>
+                                                                    <button onClick={() => handleDeleteCampaign(c.id, c.title)} style={menuItemStyle(true)}>
+                                                                        <Trash2 size={13} /> Delete campaign
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handlePlay(c) }}
                                                             title="Preview this campaign as a student would see it"
@@ -382,6 +560,43 @@ function RoomPage() {
                     campaignId={openCampaignId}
                     onClose={() => setOpenCampaignId(null)}
                 />
+            )}
+
+            {showEditRoom && (
+                <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(8,5,3,0.72)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 999 }}>
+                    <div style={{ background: `linear-gradient(165deg, ${colors.vaultBorder}, ${colors.obsidian})`, borderRadius: "24px", padding: "3px", width: "400px", boxShadow: "0 25px 70px rgba(0,0,0,0.6)", animation: "bookOpen 0.4s ease-out" }}>
+                        <div style={{ backgroundColor: colors.parchment, borderRadius: "22px", padding: "36px" }}>
+                            <h2 style={{ fontFamily: fonts.displayDecorative, color: colors.ink, margin: "0 0 20px 0", fontSize: "26px" }}>Edit Room</h2>
+
+                            <form>
+                                <label style={{ fontFamily: fonts.body, color: colors.ink, fontWeight: "600", fontSize: "13px" }}>Room Name</label>
+                                <input
+                                    type="text"
+                                    value={editRoomName}
+                                    onChange={(e) => setEditRoomName(e.target.value)}
+                                    onFocus={() => setFocusedField("editName")}
+                                    onBlur={() => setFocusedField(null)}
+                                    style={{ ...roomInputStyle("editName"), marginBottom: "16px" }}
+                                />
+
+                                <label style={{ fontFamily: fonts.body, color: colors.ink, fontWeight: "600", fontSize: "13px" }}>Description</label>
+                                <input
+                                    type="text"
+                                    value={editRoomDescription}
+                                    onChange={(e) => setEditRoomDescription(e.target.value)}
+                                    onFocus={() => setFocusedField("editDescription")}
+                                    onBlur={() => setFocusedField(null)}
+                                    style={{ ...roomInputStyle("editDescription"), marginBottom: "24px" }}
+                                />
+
+                                <div style={{ display: "flex", gap: "12px" }}>
+                                    <button type="button" onClick={() => setShowEditRoom(false)} style={{ flex: 1, padding: "12px", backgroundColor: "transparent", color: colors.ink, border: `1px solid ${colors.vaultBorder}66`, borderRadius: "16px", fontFamily: fonts.body, fontWeight: "600", cursor: "pointer" }}>Cancel</button>
+                                    <button type="button" onClick={handleSaveRoom} style={{ flex: 1, padding: "12px", background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`, color: "white", border: "none", borderRadius: "16px", fontFamily: fonts.body, fontWeight: "600", cursor: "pointer" }}>Save</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {portalActive && (

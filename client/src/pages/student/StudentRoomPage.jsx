@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { Wand2, ArrowLeft } from 'lucide-react'
+import { Wand2, ArrowLeft, Paperclip, Eye } from 'lucide-react'
 import dashboard_bg from '../../assets/dashboard_bg.png'
 import Navbar from '../../components/Navbar'
 import EmberField from '../../components/EmberField'
@@ -9,6 +9,7 @@ import UnityGame from '../../components/UnityGame'
 import { SceneBadge, SceneIcon } from '../../components/SceneIcon'
 import { getSceneMeta } from '../../scenes'
 import { colors, fonts } from '../../theme'
+import AttachmentPreviewModal from '../../components/AttachmentPreviewModal'
 
 function StudentRoomPage() {
     const { id } = useParams()
@@ -17,6 +18,7 @@ function StudentRoomPage() {
     const [gameLoading, setGameLoading] = useState(false)
     const [activeCampaign, setActiveCampaign] = useState(null)
     const [playError, setPlayError] = useState(null)
+    const [previewCampaign, setPreviewCampaign] = useState(null)
     const navigate = useNavigate()
 
     const fetchRoom = async () => {
@@ -152,6 +154,19 @@ function StudentRoomPage() {
                                             <p style={{ fontFamily: fonts.display, fontWeight: "600", fontSize: "16px", color: colors.ink, margin: "10px 0 8px 0" }}>{campaign.title}</p>
                                             <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted, margin: "0 0 10px 0" }}>{campaign.description}</p>
                                             <SceneBadge scene={campaign.scene} />
+                                            {campaign.attachmentFilename && (
+                                                <button
+                                                    onClick={() => setPreviewCampaign(campaign)}
+                                                    title={`Preview ${campaign.attachmentFilename}`}
+                                                    style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%", marginTop: "10px", padding: "7px 10px", background: "none", border: `1px solid ${colors.magicViolet}55`, borderRadius: "10px", color: colors.magicViolet, fontFamily: fonts.body, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+                                                >
+                                                    <Paperclip size={12} style={{ flexShrink: 0 }} />
+                                                    <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                        {campaign.attachmentFilename}
+                                                    </span>
+                                                    <Eye size={12} style={{ flexShrink: 0 }} />
+                                                </button>
+                                            )}
                                         </div>
                                         <button
                                             onClick={() => handlePlay(campaign)}
@@ -167,6 +182,10 @@ function StudentRoomPage() {
                     </div>
                 </div>
             </div>
+
+            {previewCampaign && (
+                <AttachmentPreviewModal campaign={previewCampaign} onClose={() => setPreviewCampaign(null)} />
+            )}
 
             {portalActive && (
                 <PortalTransition

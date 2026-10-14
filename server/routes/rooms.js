@@ -1,4 +1,5 @@
 import express from "express";
+import fs from "fs/promises";
 import prisma from "../lib/prisma.js";
 import { createRoomForTeacher } from "../lib/rooms.js";
 import { protect, teacherOnly, studentOnly } from "../middleware/auth.js";
@@ -67,7 +68,28 @@ router.get("/:id", protect, async (req, res) => {
             student: { select: { id: true, name: true, email: true } },
           },
         },
-        campaigns: true,
+        // attachmentPath is a server-local filesystem path, left out here —
+        // it's not needed client-side, which hits GET /campaigns/:id/attachment
+        // to actually download the file.
+        // Students only ever see published campaigns — drafts stay with the teacher.
+        campaigns: {
+          where: req.user.role === "STUDENT" ? { isPublished: true } : undefined,
+          select: {
+            id: true,
+            roomId: true,
+            title: true,
+            description: true,
+            scene: true,
+            storyPath: true,
+            isPublished: true,
+            createdAt: true,
+            attachmentFilename: true,
+            attachmentMimeType: true,
+            // How many plays/saves exist - the teacher UI hides "Edit" for a
+            // campaign that has any (see hasPlayHistory in routes/campaigns.js).
+            _count: { select: { sessions: true, progress: true } },
+          },
+        },
       },
     });
 
@@ -86,6 +108,67 @@ router.get("/:id", protect, async (req, res) => {
     }
 
     res.json(room);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: Rename a room or change its description
+router.patch("/:id", protect, teacherOnly, async (req, res) => {
+  const roomId = parseInt(req.params.id);
+  const { name, description } = req.body;
+
+  try {
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    if (!room) return res.status(404).json({ message: "Room not found" });
+    if (room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+
+    const updated = await prisma.room.update({
+      where: { id: roomId },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+      },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: Delete a room, along with its campaigns, clues, students, and
+// play history — the schema's onDelete: Cascade relations (see
+// schema.prisma: RoomStudent/Campaign -> Room, Clue -> Campaign,
+// CampaignSession -> Campaign, SessionAttempt -> Clue/CampaignSession) mean
+// a single delete here is enough; MySQL handles the rest. Its campaigns'
+// attachment files (if any) aren't DB rows, so they're removed from disk
+// separately, after the cascade delete succeeds.
+router.delete("/:id", protect, teacherOnly, async (req, res) => {
+  const roomId = parseInt(req.params.id);
+
+  try {
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      include: { campaigns: { select: { attachmentPath: true } } },
+    });
+    if (!room) return res.status(404).json({ message: "Room not found" });
+    if (room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+
+    // Room.activeCampaignId points at one of this room's own campaigns, so it is cleared first -
+    // otherwise the room and the campaign it points at would each be waiting on the other when
+    // the cascade runs.
+    await prisma.room.update({ where: { id: roomId }, data: { activeCampaignId: null } });
+
+    await prisma.room.delete({ where: { id: roomId } });
+
+    await Promise.all(
+      room.campaigns.filter((c) => c.attachmentPath).map((c) => fs.unlink(c.attachmentPath).catch(() => {}))
+    );
+
+    res.json({ message: "Room deleted" });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

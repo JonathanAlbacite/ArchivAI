@@ -1,4 +1,8 @@
 import express from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs/promises";
+import fssync from "fs";
 import prisma from "../lib/prisma.js";
 import { protect, teacherOnly } from "../middleware/auth.js";
 
@@ -10,6 +14,50 @@ const findCampaignWithRoom = (id) =>
     where: { id },
     include: { room: { select: { teacherId: true } } },
   });
+
+// True once anyone has played the campaign (a play session or saved
+// progress exists). Such a campaign is kept as an archive: even when it is
+// unpublished again, its title/scene/clues stay fixed so the recorded
+// results keep matching what was actually played. "Update campaign"
+// (POST /campaigns/:id/duplicate) makes an editable copy instead.
+const hasPlayHistory = async (campaignId) => {
+  const [sessions, progress] = await Promise.all([
+    prisma.campaignSession.count({ where: { campaignId } }),
+    prisma.campaignProgress.count({ where: { campaignId } }),
+  ]);
+  return sessions + progress > 0;
+};
+
+// A campaign's one attached resource file (e.g. a handout) — a broader set
+// than the lesson-notes upload in lessonModules.js (documentText.js's
+// ALLOWED_EXTENSIONS), since this is a file for students to read/download
+// as-is rather than text to extract and feed to the AI.
+const ATTACHMENT_UPLOAD_DIR = path.join(process.cwd(), "uploads", "campaign-attachments");
+const ALLOWED_ATTACHMENT_EXTENSIONS = [
+  ".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".png", ".jpg", ".jpeg", ".zip",
+];
+
+fssync.mkdirSync(ATTACHMENT_UPLOAD_DIR, { recursive: true });
+
+const attachmentStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, ATTACHMENT_UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${path.extname(file.originalname)}`);
+  },
+});
+
+const uploadAttachment = multer({
+  storage: attachmentStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_ATTACHMENT_EXTENSIONS.includes(ext)) {
+      return cb(new Error(`Only ${ALLOWED_ATTACHMENT_EXTENSIONS.join(", ")} files are allowed`));
+    }
+    cb(null, true);
+  },
+});
 
 // Teacher: Create campaign
 router.post("/campaigns", protect, teacherOnly, async (req, res) => {
@@ -159,9 +207,9 @@ router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
 // opposed to POST above, which only creates the initial set). Used by the
 // full campaign editor, which treats clues as a whole page list matching
 // the scene's template - not something to incrementally append to. Only
-// allowed while unpublished: since publishing is one-way, an unpublished
-// campaign can never have real student attempts recorded against its
-// clues yet, so deleting and recreating them is always safe.
+// allowed while unpublished AND while nobody has played it yet: deleting
+// the clues also deletes the attempts recorded against them (cascade), so a
+// campaign with play history (e.g. one that was unpublished) is refused.
 router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);
   const { clues } = req.body;
@@ -183,6 +231,8 @@ router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     if (campaign.isPublished)
       return res.status(400).json({ message: "Published campaigns can't be edited" });
+    if (await hasPlayHistory(campaignId))
+      return res.status(400).json({ message: "This campaign already has play history, so it can't be edited. Use \"Update campaign\" to make an editable copy." });
 
     const templateError = await validateAgainstTemplate(campaign.scene, clues);
     if (templateError) return res.status(400).json({ message: templateError });
@@ -220,8 +270,9 @@ router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
 });
 
 // Teacher: Edit a campaign's title/description/scene — only while it's
-// still a draft. Once published, students may already be relying on it, so
-// it's locked; unpublish isn't supported, so publishing is a one-way step.
+// still a draft with no play history. Once published, students may already
+// be relying on it, so it's locked; unpublishing hides it again but keeps
+// the history, so it stays locked once it has been played too.
 router.patch("/campaigns/:id", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);
   const { title, description, scene } = req.body;
@@ -233,6 +284,8 @@ router.patch("/campaigns/:id", protect, teacherOnly, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     if (campaign.isPublished)
       return res.status(400).json({ message: "Published campaigns can't be edited" });
+    if (await hasPlayHistory(campaignId))
+      return res.status(400).json({ message: "This campaign already has play history, so it can't be edited. Use \"Update campaign\" to make an editable copy." });
 
     const updated = await prisma.campaign.update({
       where: { id: campaignId },
@@ -249,8 +302,123 @@ router.patch("/campaigns/:id", protect, teacherOnly, async (req, res) => {
   }
 });
 
-// Teacher: Delete a campaign, along with its clues, play sessions, and
-// session attempts (all RESTRICT foreign keys, so children must go first).
+// Teacher: Attach (or replace) a campaign's resource file. Allowed on
+// published campaigns too — unlike title/description/scene, swapping the
+// handout doesn't affect any clue a student may already be mid-attempt on.
+router.post("/campaigns/:id/attachment", protect, teacherOnly, (req, res) => {
+  uploadAttachment.single("file")(req, res, async (uploadErr) => {
+    if (uploadErr instanceof multer.MulterError) {
+      if (uploadErr.code === "LIMIT_FILE_SIZE")
+        return res.status(400).json({ message: "File exceeds the 10MB limit" });
+      return res.status(400).json({ message: uploadErr.message });
+    }
+    if (uploadErr) return res.status(400).json({ message: uploadErr.message });
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+    const campaignId = parseInt(req.params.id);
+
+    try {
+      const campaign = await findCampaignWithRoom(campaignId);
+      if (!campaign) {
+        await fs.unlink(req.file.path).catch(() => {});
+        return res.status(404).json({ message: "Campaign not found" });
+      }
+      if (campaign.room.teacherId !== req.user.id) {
+        await fs.unlink(req.file.path).catch(() => {});
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Replacing an existing attachment — remove the old file from disk so
+      // it doesn't linger as an orphan now that no row points to it.
+      if (campaign.attachmentPath) {
+        await fs.unlink(campaign.attachmentPath).catch(() => {});
+      }
+
+      const updated = await prisma.campaign.update({
+        where: { id: campaignId },
+        data: {
+          attachmentFilename: req.file.originalname,
+          attachmentPath: req.file.path,
+          attachmentMimeType: req.file.mimetype,
+        },
+      });
+
+      res.status(201).json({
+        attachmentFilename: updated.attachmentFilename,
+        attachmentMimeType: updated.attachmentMimeType,
+      });
+    } catch (err) {
+      await fs.unlink(req.file.path).catch(() => {});
+      res.status(500).json({ message: "Server error", error: err.message });
+    }
+  });
+});
+
+// Teacher: Remove a campaign's resource file
+router.delete("/campaigns/:id/attachment", protect, teacherOnly, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+    if (campaign.room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+    if (!campaign.attachmentPath)
+      return res.status(400).json({ message: "This campaign has no attachment" });
+
+    await fs.unlink(campaign.attachmentPath).catch(() => {});
+
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { attachmentFilename: null, attachmentPath: null, attachmentMimeType: null },
+    });
+
+    res.json({ message: "Attachment removed" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher (owner), admin, or student: Download a campaign's attached resource file.
+// The owner and any admin always can; anyone else only once the campaign is
+// published AND they're enrolled in its room — the file is a class handout, not public.
+router.get("/campaigns/:id/attachment", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+
+    const isOwner = campaign.room.teacherId === req.user.id;
+    if (!isOwner && req.user.role !== "ADMIN") {
+      const enrolled =
+        campaign.isPublished &&
+        (await prisma.roomStudent.findFirst({
+          where: { roomId: campaign.roomId, studentId: req.user.id },
+        }));
+      if (!enrolled) return res.status(404).json({ message: "Campaign not found" });
+    }
+    if (!campaign.attachmentPath)
+      return res.status(404).json({ message: "This campaign has no attachment" });
+
+    res.download(campaign.attachmentPath, campaign.attachmentFilename, (err) => {
+      // A response may already be partially sent by the time a stream error
+      // fires — res.download only lets us react, not prevent that.
+      if (err && !res.headersSent) res.status(404).json({ message: "Attachment file not found" });
+    });
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: Delete a campaign, along with its clues (and their answers), play
+// sessions, session attempts, and saved progress — the schema's onDelete:
+// Cascade relations (see schema.prisma: Clue/CampaignSession/CampaignProgress
+// -> Campaign, ClueAnswer -> Clue, SessionAttempt -> Clue/CampaignSession)
+// mean a single delete here is enough; MySQL handles the rest. A room that
+// had this campaign as its active campaign is cleared by the foreign key
+// (Room.activeCampaignId is SET NULL). Its attachment file (if any) isn't a DB row, so it's removed
+// from disk separately, after the row delete succeeds.
 router.delete("/campaigns/:id", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);
 
@@ -260,18 +428,8 @@ router.delete("/campaigns/:id", protect, teacherOnly, async (req, res) => {
     if (campaign.room.teacherId !== req.user.id)
       return res.status(403).json({ message: "Access denied" });
 
-    const clueIds = (await prisma.clue.findMany({ where: { campaignId }, select: { id: true } })).map((c) => c.id);
-    const sessionIds = (
-      await prisma.campaignSession.findMany({ where: { campaignId }, select: { id: true } })
-    ).map((s) => s.id);
-
-    await prisma.sessionAttempt.deleteMany({
-      where: { OR: [{ clueId: { in: clueIds } }, { sessionId: { in: sessionIds } }] },
-    });
-    await prisma.campaignSession.deleteMany({ where: { campaignId } });
-    await prisma.campaignProgress.deleteMany({ where: { campaignId } });
-    await prisma.clue.deleteMany({ where: { campaignId } });
     await prisma.campaign.delete({ where: { id: campaignId } });
+    if (campaign.attachmentPath) await fs.unlink(campaign.attachmentPath).catch(() => {});
 
     res.json({ message: "Campaign deleted" });
   } catch (err) {
@@ -295,6 +453,90 @@ router.patch("/campaigns/:id/publish", protect, teacherOnly, async (req, res) =>
     });
 
     res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: Unpublish a campaign - students stop seeing it, but the campaign
+// itself, its clues, and every recorded session/progress row are kept (the
+// teacher can still open it, and the results stay archived). If it was the
+// room's active campaign, that pointer is cleared so students aren't left
+// pointing at a campaign they can no longer load.
+router.patch("/campaigns/:id/unpublish", protect, teacherOnly, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+    if (campaign.room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+    if (!campaign.isPublished)
+      return res.status(400).json({ message: "This campaign isn't published" });
+
+    const [updated] = await prisma.$transaction([
+      prisma.campaign.update({
+        where: { id: campaignId },
+        data: { isPublished: false },
+      }),
+      prisma.room.updateMany({
+        where: { id: campaign.roomId, activeCampaignId: campaignId },
+        data: { activeCampaignId: null },
+      }),
+    ]);
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: "Update campaign" - makes a new, unpublished copy of a campaign
+// (same title + " (Update)", description, scene, and a copy of every clue
+// with its answers) so a published or archived campaign can be revised
+// without touching the original or its play history. The attachment is NOT
+// copied - the new draft starts with no file, ready for a new one.
+router.post("/campaigns/:id/duplicate", protect, teacherOnly, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const source = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      include: {
+        room: { select: { teacherId: true } },
+        clues: {
+          orderBy: { orderNumber: "asc" },
+          include: { answers: { orderBy: { order: "asc" } } },
+        },
+      },
+    });
+    if (!source) return res.status(404).json({ message: "Campaign not found" });
+    if (source.room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+
+    const copy = await prisma.campaign.create({
+      data: {
+        roomId: source.roomId,
+        title: `${source.title} (Update)`,
+        description: source.description,
+        scene: source.scene,
+        storyPath: source.storyPath,
+        isPublished: false,
+        clues: {
+          create: source.clues.map((c) => ({
+            orderNumber: c.orderNumber,
+            type: c.type,
+            question: c.question,
+            note: c.note,
+            answers: {
+              create: c.answers.map((a) => ({ text: a.text, isCorrect: a.isCorrect, order: a.order })),
+            },
+          })),
+        },
+      },
+    });
+
+    res.status(201).json(copy);
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
@@ -342,7 +584,9 @@ router.get("/campaigns/:id", protect, async (req, res) => {
       orderBy: { orderNumber: "asc" },
     });
 
-    const { room, ...campaignData } = campaign;
+    // attachmentPath is a server-local filesystem path — students/teacher
+    // never need it directly, they hit GET /campaigns/:id/attachment instead.
+    const { room, attachmentPath, ...campaignData } = campaign;
     res.json({ ...campaignData, clues });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Paperclip, Eye } from "lucide-react";
 import BookShell from "../book/BookShell";
+import AttachmentPreviewModal from "../AttachmentPreviewModal";
 import { colors, fonts } from "../../theme";
 import { getSceneMeta } from "../../scenes";
 
@@ -7,6 +9,7 @@ function CampaignBookViewer({ campaignId, onClose }) {
   const [campaign, setCampaign] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pageIndex, setPageIndex] = useState(0);
+  const [previewingAttachment, setPreviewingAttachment] = useState(false);
 
   useEffect(() => {
     const fetchCampaign = async () => {
@@ -79,6 +82,20 @@ function CampaignBookViewer({ campaignId, onClose }) {
       {campaign.description && (
         <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted, margin: 0 }}>{campaign.description}</p>
       )}
+
+      {campaign.attachmentFilename && (
+        <button
+          onClick={() => setPreviewingAttachment(true)}
+          title={`Preview ${campaign.attachmentFilename}`}
+          style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%", marginTop: "16px", padding: "7px 10px", background: "none", border: `1px solid ${colors.parchmentLine}`, borderRadius: "10px", color: colors.ember, fontFamily: fonts.body, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+        >
+          <Paperclip size={12} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {campaign.attachmentFilename}
+          </span>
+          <Eye size={12} style={{ flexShrink: 0 }} />
+        </button>
+      )}
     </div>
   );
 
@@ -128,6 +145,7 @@ function CampaignBookViewer({ campaignId, onClose }) {
   );
 
   return (
+    <>
     <BookShell
       leftPage={leftPage}
       rightPage={rightPage}
@@ -137,6 +155,11 @@ function CampaignBookViewer({ campaignId, onClose }) {
       onNext={() => setPageIndex(Math.min(pageCount - 1, pageIndex + 1))}
       onClose={onClose}
     />
+
+    {previewingAttachment && (
+      <AttachmentPreviewModal campaign={campaign} onClose={() => setPreviewingAttachment(false)} />
+    )}
+    </>
   );
 }
 

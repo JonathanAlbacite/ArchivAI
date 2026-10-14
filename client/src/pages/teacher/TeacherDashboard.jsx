@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Users, DoorOpen, Sparkles, Palette } from "lucide-react";
+import { Users, DoorOpen, Sparkles, Palette, Trash2 } from "lucide-react";
 import Navbar from "../../components/Navbar";
 import EmberField from "../../components/EmberField";
 import dashboard_bg from "../../assets/dashboard_bg.png";
@@ -14,6 +14,8 @@ function TeacherDashboard() {
   const [hoveredRoomId, setHoveredRoomId] = useState(null);
   const [newCardHover, setNewCardHover] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // room being confirmed for deletion
+  const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
 
   // Fetch rooms from API
@@ -71,6 +73,37 @@ function TeacherDashboard() {
     } catch (err) {
       console.error(err);
       alert("Something went wrong.");
+    }
+  }
+
+  // Delete room handler — called from the confirmation dialog, not directly
+  // from the trash icon, since this is a destructive, unrecoverable action.
+  const handleDeleteRoom = async () => {
+    if (!deleteTarget) return
+    const token = localStorage.getItem("token")
+    setDeleting(true)
+
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/rooms/${deleteTarget.id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message);
+        return;
+      }
+
+      setDeleteTarget(null);
+      fetchRooms();
+
+    } catch (err) {
+      console.error(err);
+      alert("Something went wrong.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -207,7 +240,16 @@ function TeacherDashboard() {
                     }}
                   >
                     <div>
-                      <DoorOpen size={22} color={hovered ? colors.emberBright : colors.brass} style={{ marginBottom: "10px" }} />
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                        <DoorOpen size={22} color={hovered ? colors.emberBright : colors.brass} style={{ marginBottom: "10px" }} />
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(room) }}
+                          title="Delete room"
+                          style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex", padding: 0 }}
+                        >
+                          <Trash2 size={15} color="#C9BBA6" />
+                        </button>
+                      </div>
                       <p style={{ fontFamily: fonts.display, fontWeight: "600", fontSize: "16px", color: colors.brassBright, margin: "0 0 8px 0" }}>{room.name}</p>
                       <p style={{ fontFamily: fonts.body, fontSize: "13px", color: "#B9AC96", margin: "0 0 10px 0" }}>{room.description}</p>
                       <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.brass, margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
@@ -312,6 +354,41 @@ function TeacherDashboard() {
                         <button type="button" onClick={handleCreateRoom} style={{ flex: 1, padding: "12px", background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`, color: "white", border: "none", borderRadius: "16px", fontFamily: fonts.body, fontWeight: "600", cursor: "pointer" }}>Create</button>
                       </div>
                     </form>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Delete Room Confirmation Modal */}
+            {deleteTarget && (
+              <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", backgroundColor: "rgba(8,5,3,0.72)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 999 }}>
+
+                {/* Modal box */}
+                <div
+                  style={{
+                    background: `linear-gradient(165deg, ${colors.vaultBorder}, ${colors.obsidian})`,
+                    borderRadius: "24px",
+                    padding: "3px",
+                    width: "400px",
+                    boxShadow: "0 25px 70px rgba(0,0,0,0.6)",
+                    animation: "bookOpen 0.4s ease-out",
+                  }}
+                >
+                  <div style={{ backgroundColor: colors.parchment, borderRadius: "22px", padding: "36px" }}>
+                    <h2 style={{ fontFamily: fonts.displayDecorative, color: colors.ink, margin: "0 0 12px 0", fontSize: "26px" }}>Delete Room?</h2>
+
+                    <p style={{ fontFamily: fonts.body, color: colors.ink, fontSize: "14px", lineHeight: 1.6, margin: "0 0 28px 0" }}>
+                      This will permanently delete <strong>"{deleteTarget.name}"</strong>
+                      {deleteTarget._count?.campaigns > 0
+                        ? ` and its ${deleteTarget._count.campaigns} ${deleteTarget._count.campaigns === 1 ? "campaign" : "campaigns"}`
+                        : ""}, along with its students and play history. This can't be undone.
+                    </p>
+
+                    {/* Buttons */}
+                    <div style={{ display: "flex", gap: "12px" }}>
+                      <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting} style={{ flex: 1, padding: "12px", backgroundColor: "transparent", color: colors.ink, border: `1px solid ${colors.vaultBorder}66`, borderRadius: "16px", fontFamily: fonts.body, fontWeight: "600", cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1 }}>Cancel</button>
+                      <button type="button" onClick={handleDeleteRoom} disabled={deleting} style={{ flex: 1, padding: "12px", backgroundColor: colors.danger, color: "white", border: "none", borderRadius: "16px", fontFamily: fonts.body, fontWeight: "600", cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1 }}>{deleting ? "Deleting..." : "Confirm Delete"}</button>
+                    </div>
                   </div>
                 </div>
               </div>
