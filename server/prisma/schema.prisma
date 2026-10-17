@@ -219,7 +219,19 @@ model GeneratedClue {
   lessonModuleId Int
   orderNumber    Int
   clueText       String   @db.Text
-  answerText     String
+  answerText     String   // the (first) correct answer - always set, whatever the clueType
+  // Which Question/Answer shape this was drafted as - one per slot of the
+  // scene's published VaultTemplate, so it can fill the matching page
+  // (see ClueType above and lessonModules.js).
+  clueType       ClueType @default(NORMAL)
+  // Every answer option as [{ text, isCorrect }] - the correct answer(s)
+  // first, then the decoys. Null on clues generated before clueType existed
+  // (those are plain Normal clues: just answerText).
+  answers        Json?
+  // The question's hint: a short note copied from the lesson document that
+  // contains the answer. It becomes the Clue's note (see Clue.note) when the
+  // clue is used. Null on clues generated before hints existed.
+  note           String?  @db.Text
   scene          String   // "Laboratory" | "Library" | "Tomb"
   status         String   @default("pending") // "pending" | "edited" | "approved" | "rejected"
   createdAt      DateTime @default(now())

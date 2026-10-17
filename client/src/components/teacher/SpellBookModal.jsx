@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Trash2, Lock, Sparkles, Check, X, Paperclip, FileText } from "lucide-react";
 import EmberField from "../EmberField";
 import { colors, fonts } from "../../theme";
@@ -286,9 +286,14 @@ function StatusPill({ status }) {
   );
 }
 
+// Short names for the review cards (CLUE_TYPES above holds the long ones).
+const CLUE_TYPE_LABELS = { NORMAL: "Normal", MULTICHOICE: "MultiChoice", COMBO: "Combo" };
+
 // One reviewable clue conjured from a lesson upload. Keeps its own text
-// buffer so keystrokes don't round-trip to the server — edits are only
-// PATCHed up on blur, and only if they actually changed.
+// buffer (the question and every answer option) so keystrokes don't
+// round-trip to the server — edits are only PATCHed up on blur, and only if
+// they actually changed. Shows one answer field for a Normal clue, or the
+// correct answer(s) plus decoys for a MultiChoice/Combo clue.
 //
 // Clicking Approve/Reject right after editing fires a native blur before
 // the click handler runs, which would otherwise send the edit-PATCH and
@@ -297,13 +302,28 @@ function StatusPill({ status }) {
 // just-kicked-off) edit so approve/reject can await it first and guarantee
 // the status change is always the last write.
 function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
+  const clueType = clue.clueType || "NORMAL";
+  // Clues generated before clueType existed only have answerText.
+  const savedAnswers = clue.answers?.length
+    ? clue.answers.map((a) => ({ text: a.text, isCorrect: !!a.isCorrect }))
+    : [{ text: clue.answerText, isCorrect: true }];
+
   const [clueText, setClueText] = useState(clue.clueText);
-  const [answerText, setAnswerText] = useState(clue.answerText);
+  const [note, setNote] = useState(clue.note || "");
+  const [answers, setAnswers] = useState(savedAnswers);
   const pendingSave = useRef(null);
 
+  const setAnswerAt = (index, text) =>
+    setAnswers((list) => list.map((a, i) => (i === index ? { ...a, text } : a)));
+
+  // A blank question or answer can't be saved or approved - the page it
+  // lands on would just be incomplete.
+  const isIncomplete = !clueText.trim() || answers.some((a) => !a.text.trim());
+
   const flushEdit = () => {
-    if (clueText !== clue.clueText || answerText !== clue.answerText) {
-      pendingSave.current = onSaveEdit(clue.id, { clueText, answerText });
+    const changed = clueText !== clue.clueText || note !== (clue.note || "") || JSON.stringify(answers) !== JSON.stringify(savedAnswers);
+    if (changed && !isIncomplete) {
+      pendingSave.current = onSaveEdit(clue.id, { clueText, answers, note });
     }
     return pendingSave.current || Promise.resolve();
   };
@@ -333,7 +353,12 @@ function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", gap: "8px" }}>
-        <SceneBadge scene={clue.scene} />
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <SceneBadge scene={clue.scene} />
+          <span style={{ fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: colors.inkMuted, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            {CLUE_TYPE_LABELS[clueType]}
+          </span>
+        </div>
         <StatusPill status={clue.status} />
       </div>
 
@@ -355,30 +380,60 @@ function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
           resize: "none",
         }}
       />
-      <input
-        type="text"
-        value={answerText}
-        onChange={(e) => setAnswerText(e.target.value)}
+      <span style={{ display: "block", marginBottom: "3px", fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: colors.inkMuted }}>
+        Hint (shown in the Journal's Note panel)
+      </span>
+      <textarea
+        rows={2}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
         onBlur={flushEdit}
-        placeholder="Answer"
+        placeholder="A short sentence from the lesson that contains the answer"
         style={{
           width: "100%",
           padding: "8px 10px",
-          marginBottom: "10px",
+          marginBottom: "8px",
           borderRadius: "4px",
           border: `1px solid ${colors.parchmentLine}`,
           fontFamily: fonts.body,
           fontSize: "13px",
           color: colors.ink,
           boxSizing: "border-box",
+          resize: "none",
         }}
       />
+      {answers.map((a, i) => (
+        <div key={i} style={{ marginBottom: "10px" }}>
+          {clueType !== "NORMAL" && (
+            <span style={{ display: "block", marginBottom: "3px", fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: a.isCorrect ? colors.success : colors.inkMuted }}>
+              {a.isCorrect ? "Correct answer" : "Decoy"}
+            </span>
+          )}
+          <input
+            type="text"
+            value={a.text}
+            onChange={(e) => setAnswerAt(i, e.target.value)}
+            onBlur={flushEdit}
+            placeholder={a.isCorrect ? "Answer" : "Decoy"}
+            style={{
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: "4px",
+              border: `1px solid ${a.isCorrect && clueType !== "NORMAL" ? colors.success : colors.parchmentLine}`,
+              fontFamily: fonts.body,
+              fontSize: "13px",
+              color: colors.ink,
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+      ))}
 
       <div style={{ display: "flex", gap: "8px" }}>
         <button
           type="button"
           onClick={handleApprove}
-          disabled={isApproved}
+          disabled={isApproved || isIncomplete}
           style={{
             flex: 1,
             display: "flex",
@@ -393,7 +448,8 @@ function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
             fontFamily: fonts.body,
             fontSize: "12px",
             fontWeight: "600",
-            cursor: isApproved ? "default" : "pointer",
+            cursor: isApproved || isIncomplete ? "default" : "pointer",
+            opacity: isIncomplete && !isApproved ? 0.5 : 1,
           }}
         >
           <Check size={13} /> Approve
@@ -429,7 +485,7 @@ function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
 // Takes over the right page while clues conjured from an uploaded lesson
 // are awaiting review. Approving/rejecting/editing here persists straight
 // to the GeneratedClue rows; only approved ones get inserted into this
-// vault's empty Normal-type pages (see insertApprovedClues).
+// vault's empty pages of the same type (see insertApprovedClues).
 function GeneratedCluesReview({ clues, onSaveEdit, onApprove, onReject, onInsert, onCancel }) {
   const approvedCount = clues.filter((c) => c.status === "approved").length;
 
@@ -439,8 +495,8 @@ function GeneratedCluesReview({ clues, onSaveEdit, onApprove, onReject, onInsert
         Review Generated Clues
       </h2>
       <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 14px 0" }}>
-        Approve the clues you want added. They'll drop into this vault's empty Normal-type pages, in order —
-        MultiChoice/Combo pages still need to be filled in by hand.
+        Approve the clues you want added. Each one drops into the next empty page of its own type
+        (Normal, MultiChoice or Combo), in order — you can still edit the question, hint, answers and decoys here first.
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -523,13 +579,21 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   // still defaults to publishing immediately, matching prior behavior.
   const [publishNow, setPublishNow] = useState(isEditing ? campaign.isPublished : true);
 
-  // "Conjure clues from a lesson" flow: idle -> uploading -> generating ->
-  // review (clues awaiting approve/reject) -> back to idle once inserted.
+  // "Conjure clues from a lesson" flow: idle -> uploading -> waiting (the
+  // AI assistant chat opens with the uploaded file and asks Easy / Medium /
+  // Hard) -> generating -> review (clues awaiting approve/reject) -> back to
+  // idle once inserted.
   const [lessonStep, setLessonStep] = useState("idle");
   const [lessonError, setLessonError] = useState("");
   const [generatedClues, setGeneratedClues] = useState([]);
   const fileInputRef = useRef(null);
   const reviewing = lessonStep === "review";
+  // The uploaded lesson the chat is asking a difficulty for, and the vault
+  // picked right now, kept in refs so the chat's reply (an event, handled
+  // below) always sees the latest values.
+  const pendingLessonRef = useRef(null);
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
 
   // Campaign resource file — a plain file for students to view/download
   // (unrelated to the lesson-notes upload above, which is AI clue-generation
@@ -680,9 +744,12 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
 
   const labelStyle = { fontFamily: fonts.body, color: colors.ink, fontWeight: "600", fontSize: "13px" };
 
-  // Uploads the chosen lesson file, extracts its text, and asks the AI
-  // assistant to conjure a batch of clues (GeneratedClue rows) to review
-  // below. Generated clues are always plain Normal-type Q&A pairs.
+  // Uploads the chosen lesson file and extracts its text, then opens the AI
+  // assistant chat with that file attached so the teacher can pick Easy,
+  // Medium or Hard there (see TeacherChatWidget). The clues are drafted once
+  // the chat reports the chosen difficulty (handleDifficultyChosen below).
+  // One clue is drafted per page of this vault's question set, each of that
+  // page's type (Normal, MultiChoice or Combo).
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -710,12 +777,31 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       const uploadData = await uploadRes.json();
       if (!uploadRes.ok) throw new Error(uploadData.message || "Upload failed");
 
-      setLessonStep("generating");
+      pendingLessonRef.current = uploadData.id;
+      setLessonStep("waiting");
+      window.dispatchEvent(
+        new CustomEvent("archivai:open-chat", {
+          detail: { lessonModuleId: uploadData.id, filename: uploadData.originalFilename || file.name },
+        })
+      );
+    } catch (err) {
+      setLessonError(err.message);
+      setLessonStep("error");
+    }
+  };
 
-      const genRes = await fetch(`${import.meta.env.VITE_API_URL}/api/lesson-modules/${uploadData.id}/generate-clues`, {
+  // Asks the AI assistant to conjure the clues (GeneratedClue rows) to review
+  // below, at the difficulty chosen in the chat.
+  const generateClues = async (lessonModuleId, difficulty) => {
+    const token = localStorage.getItem("token");
+    setLessonError("");
+    setLessonStep("generating");
+
+    try {
+      const genRes = await fetch(`${import.meta.env.VITE_API_URL}/api/lesson-modules/${lessonModuleId}/generate-clues`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ scene }),
+        body: JSON.stringify({ scene: sceneRef.current, difficulty }),
       });
       const genData = await genRes.json();
       if (!genRes.ok) throw new Error(genData.message || "Clue generation failed");
@@ -728,13 +814,28 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     }
   };
 
-  const saveClueEdit = async (id, { clueText, answerText }) => {
+  // The chat tells us which difficulty the teacher picked for the file this
+  // modal uploaded (ignored for any other file).
+  useEffect(() => {
+    const handleDifficultyChosen = (e) => {
+      const { lessonModuleId, difficulty } = e.detail || {};
+      if (!lessonModuleId || lessonModuleId !== pendingLessonRef.current) return;
+
+      pendingLessonRef.current = null;
+      generateClues(lessonModuleId, difficulty);
+    };
+
+    window.addEventListener("archivai:difficulty-chosen", handleDifficultyChosen);
+    return () => window.removeEventListener("archivai:difficulty-chosen", handleDifficultyChosen);
+  }, []);
+
+  const saveClueEdit = async (id, { clueText, answers, note }) => {
     const token = localStorage.getItem("token");
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/clues/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ clueText, answerText }),
+        body: JSON.stringify({ clueText, answers, note }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to save edit");
@@ -759,29 +860,38 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     }
   };
 
-  // Only approved clues get used, and only into pages that are (a) Normal
-  // type and (b) still blank - AI-generated content is always plain
-  // Normal Q&A (see lessonModules.js), so it can never fill a MultiChoice
-  // or Combo slot. Any approved clues left over once every empty Normal
-  // page is full are simply not added.
+  // Only approved clues get used, and each goes into the first page that is
+  // (a) the same type as the clue (Normal, MultiChoice or Combo - see
+  // lessonModules.js) and (b) still blank. Any approved clue with no empty
+  // page of its type left is simply not added.
   const insertApprovedClues = () => {
     const approved = generatedClues.filter((c) => c.status === "approved");
     if (approved.length === 0) return;
 
+    const nextPages = [...pages];
+    const filled = new Set();
     let used = 0;
-    setPages((prev) =>
-      prev.map((p) => {
-        if (used < approved.length && p.type === "NORMAL" && !p.question.trim()) {
-          const c = approved[used];
-          used += 1;
-          return { ...p, question: c.clueText, answers: [{ text: c.answerText, isCorrect: true }] };
-        }
-        return p;
-      })
-    );
+
+    for (const c of approved) {
+      const type = c.clueType || "NORMAL";
+      const index = nextPages.findIndex((p, i) => !filled.has(i) && p.type === type && !p.question.trim());
+      if (index === -1) continue;
+
+      const answers = c.answers?.length ? c.answers : [{ text: c.answerText, isCorrect: true }];
+      nextPages[index] = {
+        ...nextPages[index],
+        question: c.clueText,
+        note: c.note || "",
+        answers: answers.map((a) => ({ text: a.text, isCorrect: !!a.isCorrect })),
+      };
+      filled.add(index);
+      used += 1;
+    }
+
+    setPages(nextPages);
 
     if (used < approved.length) {
-      alert(`Only ${used} of ${approved.length} approved clue(s) fit into this vault's empty Normal pages - the rest weren't added.`);
+      alert(`Only ${used} of ${approved.length} approved clue(s) fit into this vault's empty pages - the rest weren't added.`);
     }
 
     setLessonStep("idle");
@@ -1139,7 +1249,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                         <label style={labelStyle}>Generate Clues from a Lesson</label>
                         <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "6px 0 10px 0" }}>
                           {scene && templateStatus === "ready"
-                            ? `Upload a lesson document (.pdf, .docx, .doc, .txt) and the AI assistant will draft ${getSceneMeta(scene).label}-themed clues to review — they'll fill this vault's empty Normal pages.`
+                            ? `Upload a lesson document (.pdf, .docx, .doc, .txt), choose Easy, Medium or Hard in the AI assistant chat, and it will draft questions based only on that document for you to review — one for each page of this vault's question set, matching its Normal, MultiChoice or Combo type.`
                             : "Choose a vault with a published question-set above first."}
                         </p>
                         <input
@@ -1172,6 +1282,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                           <Sparkles size={14} />
                           {lessonStep === "uploading"
                             ? "Uploading..."
+                            : lessonStep === "waiting"
+                            ? "Choose the difficulty in the chat..."
                             : lessonStep === "generating"
                             ? "Generating clues..."
                             : "Choose a File"}
@@ -1281,7 +1393,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                         onChange={(e) => updateClue("note", e.target.value)}
                         onFocus={() => setFocusedField("note")}
                         onBlur={() => setFocusedField(null)}
-                        placeholder="Free-standing lore text for the Journal's Note panel (optional)"
+                        placeholder="Hint for the Journal's Note panel: a short sentence that contains the answer (optional)"
                         style={{ ...fieldStyle("note"), marginBottom: "18px" }}
                       />
 

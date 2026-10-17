@@ -25,7 +25,7 @@ Keep your own tone plain, direct, and professional — you are a normal helpful 
 
 You are the assistant for ArchivAI, part of the capstone project "The Archivist's Legacy: Keepers of the Forgotten Vaults" — a web-based 3D puzzle-exploration educational game that lets teachers configure lesson content (Story, Clues, Passwords) for students to explore and solve inside a Unity-based 3D game. This was built by a BSIT team at the College of Computing and Informatics, Iloilo Science and Technology University (La Paz, Iloilo City): Jonathan C. Albacite, Fergus Jerome O. Amado, Joshua E. Buencuchillo, Irvin Charles D. Flores, Jovet T. Quiñones, and Jose Marco C. Umayao. ArchivAI adds AI-assisted clue generation and an AI assistant on top of that base system. Only mention this background when the teacher actually asks about the project, the team, or who built this — don't volunteer it unprompted in unrelated conversations.
 
-Use the read-only tools (list_rooms_and_campaigns, get_campaign_details, generate_clues_from_notes) freely to look things up or preview generated content.
+Use the read-only tools (list_rooms_and_campaigns, get_campaign_details, get_question_set, generate_clues_from_notes) freely to look things up or preview generated content.
 
 Rooms and campaigns are separate steps: a campaign always belongs to an existing room. If the teacher wants a campaign in a room that doesn't exist yet, first call create_room to create that room, wait for the teacher to confirm it, and only then call create_campaign with the new room's id. Never guess a roomId or campaignId — look it up with list_rooms_and_campaigns (or get_campaign_details) first, or create it first.
 
@@ -42,7 +42,11 @@ update_campaign only works on a campaign that's still a draft — if it's alread
 
 create_campaign publishes the campaign immediately by default (students can see it right away). If the teacher wants to keep working on it first, pass publish: false to save it as a draft instead — drafts can still be edited (title/description/scene) later via update_campaign or the app, but published campaigns are locked. If it's not clear which the teacher wants, ask.
 
-A teacher can also upload a lesson document. When you see a message starting with [Uploaded lesson notes: "<filename>"], the text between the triple quotes is that document's extracted content. If the teacher hasn't already told you which scene (Laboratory, Library, or Tomb) to theme the clues to, ask before calling generate_clues_from_notes with that content as the notes argument.`;
+A campaign's clues follow its scene's published question set: a fixed list of pages, each Normal (also called Identification: 1 correct answer, typed onto the in-game Dial, so it must be a short term of at most 2 words and 12 letters and digits, with no punctuation and no descriptive phrase), MultiChoice (1 correct answer + 3 decoys) or Combo (1 or more correct answers + decoys); MultiChoice and Combo options may be short or descriptive. Call get_question_set to see the pages for a scene; generate_clues_from_notes already follows it and returns clues in the right shape. Each clue it returns is a short, plain question with a hint (the note field): a short plain statement of the fact, using only what the document says, that contains the answer - for example "Jupiter is the largest planet in the Solar System." - never the question followed by the answer. The player reads the hint in the game. When you save clues with apply_generated_clues, pass each hint along unchanged in the note field. apply_generated_clues saves a campaign's whole clue set at once, so it needs one clue per page, in the same order and type, and the campaign needs a scene. A campaign you just created with create_campaign has no clues yet, so apply_generated_clues works on it even if it was published. If the teacher gives you their own questions, fit them to the pages, and ask for whatever is missing (such as decoys) rather than inventing a clue of the wrong type.
+
+A teacher can also upload a lesson document. When you see a message starting with [Uploaded lesson notes: "<filename>"], the text between the triple quotes is that document's extracted content. If the teacher hasn't already told you which scene (Laboratory, Library, or Tomb) the campaign is for, ask before calling generate_clues_from_notes with that content as the notes argument and the chosen difficulty as the difficulty argument; the scene only decides the question set (how many questions and which types), not what they say. Questions, answers and hints made from an uploaded document must come only from that document: do not add facts, context or theming from your own knowledge, the game or the scene, and if the document does not cover something, say so instead of filling it in.
+
+Questions can be made at three difficulty levels: easy, medium or hard (easy is direct and uses the document's own words; medium rewords the question with synonyms and gives a hint of one or two sentences; hard describes the answer instead of naming it and gives a hint of two or three reworded sentences, with near-miss decoys). When the teacher attaches a lesson document, the chat shows Easy, Medium and Hard buttons, and their choice arrives as a line "Difficulty: Easy", "Difficulty: Medium" or "Difficulty: Hard" in their message: pass that level as the difficulty argument of generate_clues_from_notes. Do not ask for the difficulty again when the message already has it. If a teacher asks for questions from a document or from notes and gives no difficulty, ask which of the three they want, in one short question, before generating. After you generate clues, say in one short line which difficulty they were made at.`;
 
 // A teacher attaches a lesson document via the widget's "+" button or drag-
 // and-drop, which uploads it through POST /api/lesson-modules/upload (its
@@ -51,8 +55,19 @@ A teacher can also upload a lesson document. When you see a message starting wit
 // point the attached LessonModule's extracted text is folded into that
 // turn's message using this same tagged format, optionally followed by
 // whatever the teacher typed alongside it.
+//
+// Only the first MAX_NOTES_CHARS of a long document are sent: the whole
+// text is re-sent to the model on every later turn, and a free-tier
+// provider rejects a request over its per-minute token cap (Groq: 8000
+// tokens, answered with a 413).
+const MAX_NOTES_CHARS = 6000;
+
 const buildNotesUploadMessage = (filename, text, userMessage) => {
-  const base = `[Uploaded lesson notes: "${filename}"]\n\n"""\n${text}\n"""`;
+  const shown =
+    text.length > MAX_NOTES_CHARS
+      ? `${text.slice(0, MAX_NOTES_CHARS)}\n[The document is longer - only its first ${MAX_NOTES_CHARS} characters are shown.]`
+      : text;
+  const base = `[Uploaded lesson notes: "${filename}"]\n\n"""\n${shown}\n"""`;
   return userMessage ? `${base}\n\n${userMessage}` : base;
 };
 
@@ -77,6 +92,66 @@ const findOwnedConversation = async (id, teacherId) => {
 // extra DB columns (id, conversationId, createdAt) before handing rows to
 // aiProvider.generateTurn.
 const dbRowToMessage = (m) => ({ role: m.role, content: m.content, functionCall: m.functionCall });
+
+// --- Keeping each AI request small ---
+//
+// The whole conversation is re-sent to the model on every call, so a long
+// chat (especially one with an uploaded lesson, whose text is also copied
+// into the generate_clues_from_notes call) grows until it passes a provider's
+// per-minute token cap. trimMessagesForModel shrinks only what is sent to
+// the model - the ChatMessage rows and the chat window are untouched:
+//   - the current turn (the latest user message and everything after it) is
+//     always sent in full;
+//   - earlier turns are limited to the last MAX_HISTORY_MESSAGES messages,
+//     always starting at a user message so tool calls keep their results;
+//   - inside those earlier turns, long lesson text, tool arguments and tool
+//     results are shortened.
+const MAX_HISTORY_MESSAGES = 10;
+const MAX_OLD_NOTES_CHARS = 600;
+const MAX_OLD_ARG_CHARS = 400;
+const MAX_OLD_TOOL_RESULT_CHARS = 800;
+
+const shorten = (text, max) => (text.length > max ? `${text.slice(0, max)}... [shortened]` : text);
+
+const shortenOldMessage = (m) => {
+  if (m.role === "function") {
+    if (m.content.length <= MAX_OLD_TOOL_RESULT_CHARS) return m;
+    try {
+      const { name, id, response } = JSON.parse(m.content);
+      const preview = shorten(JSON.stringify(response), MAX_OLD_TOOL_RESULT_CHARS);
+      return { ...m, content: JSON.stringify({ name, ...(id ? { id } : {}), response: { shortened: true, preview } }) };
+    } catch {
+      return m;
+    }
+  }
+
+  if (m.functionCall?.args) {
+    const args = Object.fromEntries(
+      Object.entries(m.functionCall.args).map(([key, value]) => [
+        key,
+        typeof value === "string" ? shorten(value, MAX_OLD_ARG_CHARS) : value,
+      ])
+    );
+    return { ...m, functionCall: { ...m.functionCall, args } };
+  }
+
+  if (m.role === "user") {
+    const notes = m.content.match(/^(\[Uploaded lesson notes: [^\n]*\]\n\n"""\n)([\s\S]*?)(\n"""[\s\S]*)$/);
+    if (notes) return { ...m, content: `${notes[1]}${shorten(notes[2], MAX_OLD_NOTES_CHARS)}${notes[3]}` };
+  }
+
+  return m;
+};
+
+const trimMessagesForModel = (messages) => {
+  let turnStart = messages.length - 1;
+  while (turnStart > 0 && messages[turnStart].role !== "user") turnStart -= 1;
+
+  let start = Math.max(0, turnStart - MAX_HISTORY_MESSAGES);
+  while (start < turnStart && messages[start].role !== "user") start += 1;
+
+  return [...messages.slice(start, turnStart).map(shortenOldMessage), ...messages.slice(turnStart)];
+};
 
 // Collapses stored ChatMessage rows into the same shape the widget builds up
 // live during a session: one bubble per user turn, one bubble per model turn
@@ -176,7 +251,11 @@ const runToolLoop = async (conversationId, teacherId, messages) => {
     let result;
     const startedAt = Date.now();
     try {
-      result = await callAIWithFallback({ messages, tools: functionDeclarations, systemInstructionText: SYSTEM_INSTRUCTION_TEXT });
+      result = await callAIWithFallback({
+        messages: trimMessagesForModel(messages),
+        tools: functionDeclarations,
+        systemInstructionText: SYSTEM_INSTRUCTION_TEXT,
+      });
       console.log(
         `[chat] callAIWithFallback resolved via ${result.provider} in ${Date.now() - startedAt}ms (conversation ${conversationId})`
       );

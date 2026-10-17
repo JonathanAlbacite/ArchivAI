@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import fssync from "fs";
 import prisma from "../lib/prisma.js";
 import { protect, teacherOnly } from "../middleware/auth.js";
+import { hasPlayHistory } from "../lib/clueTemplates.js";
 
 const router = express.Router();
 
@@ -14,19 +15,6 @@ const findCampaignWithRoom = (id) =>
     where: { id },
     include: { room: { select: { teacherId: true } } },
   });
-
-// True once anyone has played the campaign (a play session or saved
-// progress exists). Such a campaign is kept as an archive: even when it is
-// unpublished again, its title/scene/clues stay fixed so the recorded
-// results keep matching what was actually played. "Update campaign"
-// (POST /campaigns/:id/duplicate) makes an editable copy instead.
-const hasPlayHistory = async (campaignId) => {
-  const [sessions, progress] = await Promise.all([
-    prisma.campaignSession.count({ where: { campaignId } }),
-    prisma.campaignProgress.count({ where: { campaignId } }),
-  ]);
-  return sessions + progress > 0;
-};
 
 // A campaign's one attached resource file (e.g. a handout) — a broader set
 // than the lesson-notes upload in lessonModules.js (documentText.js's

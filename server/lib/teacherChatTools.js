@@ -1,44 +1,17 @@
 import fs from "fs/promises";
 import { SchemaType } from "@google/generative-ai";
 import prisma from "./prisma.js";
-import { generateText } from "./aiProviderChain.js";
+import {
+  generateCluesForScene,
+  normalizeDifficulty,
+  DIFFICULTIES,
+  getPublishedSlotTypes,
+  validateCluesAgainstTemplate,
+  hasPlayHistory,
+} from "./clueTemplates.js";
 import { createRoomForTeacher } from "./rooms.js";
 
 const VALID_SCENES = ["Laboratory", "Library", "Tomb"];
-
-const buildCluePrompt = (notes, scene) => `You are generating escape-room style clues for a classroom activity set entirely in the "${scene}" realm, based on the lesson notes below. Every clue must fit that single realm's theme — do not mix in other settings.
-
-Return ONLY a valid JSON array (no markdown, no code fences, no commentary) of 5 to 8 clue objects. Each object must have exactly these fields:
-- "clueText": a string presenting a riddle or question derived from the lesson notes, themed to the "${scene}" realm
-- "answerText": a string with the correct answer
-
-Lesson notes:
-"""
-${notes}
-"""`;
-
-const stripMarkdownFences = (text) =>
-  text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-
-const parseClueResponse = (rawText) => {
-  try {
-    const parsed = JSON.parse(stripMarkdownFences(rawText));
-
-    if (!Array.isArray(parsed) || parsed.length < 5 || parsed.length > 8) return null;
-
-    const isValid = parsed.every(
-      (c) =>
-        typeof c.clueText === "string" &&
-        c.clueText.trim() &&
-        typeof c.answerText === "string" &&
-        c.answerText.trim()
-    );
-
-    return isValid ? parsed : null;
-  } catch {
-    return null;
-  }
-};
 
 // Tool definitions exposed to the teacher chatbot, in Gemini's SchemaType
 // shape (SchemaType's values are already lowercase JSON-Schema-compatible
@@ -65,9 +38,26 @@ export const functionDeclarations = [
     },
   },
   {
+    name: "get_question_set",
+    description:
+      "Get the question set a scene's campaigns must follow: the published vault template's fixed list of clue pages, each a type (NORMAL, MULTICHOICE or COMBO), in order. Use this before writing or fitting clues by hand, so each clue matches its page.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        scene: {
+          type: SchemaType.STRING,
+          format: "enum",
+          enum: VALID_SCENES,
+          description: "The scene whose question set to look up",
+        },
+      },
+      required: ["scene"],
+    },
+  },
+  {
     name: "generate_clues_from_notes",
     description:
-      "Generate candidate escape-room clues from lesson notes for the teacher to preview. Does NOT save anything — it only returns candidates for the teacher to review before they're applied to a campaign.",
+      "Generate candidate questions from lesson notes for the teacher to preview, following the scene's question set (one per page, each with the right type, including decoys for MultiChoice/Combo pages). The questions are based only on the notes; nothing is added from the game or the scene. Normal (Identification) answers are short terms that fit the Dial. Each question is one short, plain sentence and comes with a hint (the note field): a short statement of the fact, using only the notes, that contains the answer (never the question followed by the answer). Does NOT save anything — it only returns candidates for the teacher to review before they're applied to a campaign.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -76,7 +66,14 @@ export const functionDeclarations = [
           type: SchemaType.STRING,
           format: "enum",
           enum: VALID_SCENES,
-          description: "The scene theme every generated clue should fit",
+          description: "The scene whose question set to follow (it sets the number and types of questions, not their content)",
+        },
+        difficulty: {
+          type: SchemaType.STRING,
+          format: "enum",
+          enum: DIFFICULTIES,
+          description:
+            "How hard the questions and hints are: easy (direct, in the document's words), medium (question reworded with synonyms, hint of one or two sentences) or hard (question that describes the answer, hint of two or three reworded sentences, near-miss decoys). Use the level the teacher chose; if none was chosen, use easy.",
         },
       },
       required: ["notes", "scene"],
@@ -123,21 +120,44 @@ export const functionDeclarations = [
   {
     name: "apply_generated_clues",
     description:
-      "Save a set of clues (question/answer pairs, typically ones previously previewed via generate_clues_from_notes) onto a campaign the teacher owns. This writes to the database.",
+      "Save a campaign's COMPLETE clue set (typically the clues previewed via generate_clues_from_notes). This writes to the database. The set must match the campaign's scene's question set exactly: one clue per page, in the same order and type (see get_question_set). The campaign needs a scene. It sets the campaign's first clues, or replaces the clues of a draft nobody has played yet; a published campaign that already has clues can't be changed.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
         campaignId: { type: SchemaType.INTEGER, description: "The campaign to attach clues to" },
         clues: {
           type: SchemaType.ARRAY,
-          description: "The clues to save, in order",
+          description: "The whole clue set, one entry per page of the question set, in the question set's order",
           items: {
             type: SchemaType.OBJECT,
             properties: {
+              type: {
+                type: SchemaType.STRING,
+                format: "enum",
+                enum: ["NORMAL", "MULTICHOICE", "COMBO"],
+                description: "Must equal that page's type in the question set",
+              },
               question: { type: SchemaType.STRING },
-              answer: { type: SchemaType.STRING },
+              note: {
+                type: SchemaType.STRING,
+                description:
+                  "The question's hint: a short sentence from the lesson notes that contains the answer, exactly as returned by generate_clues_from_notes. Optional.",
+              },
+              answers: {
+                type: SchemaType.ARRAY,
+                description:
+                  "Every answer option, correct ones first. NORMAL: exactly 1, correct. MULTICHOICE: exactly 4 - 1 correct and 3 decoys. COMBO: 1 or more correct plus any decoys.",
+                items: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    text: { type: SchemaType.STRING },
+                    isCorrect: { type: SchemaType.BOOLEAN, description: "true for a correct answer, false for a decoy" },
+                  },
+                  required: ["text", "isCorrect"],
+                },
+              },
             },
-            required: ["question", "answer"],
+            required: ["type", "question", "answers"],
           },
         },
       },
@@ -207,6 +227,7 @@ export const functionDeclarations = [
 export const READ_TOOL_NAMES = new Set([
   "list_rooms_and_campaigns",
   "get_campaign_details",
+  "get_question_set",
   "generate_clues_from_notes",
 ]);
 
@@ -293,30 +314,45 @@ export const toolImplementations = {
     return { ...rest, roomName: room.name };
   },
 
+  get_question_set: async (args) => {
+    const scene = VALID_SCENES.find((s) => s.toLowerCase() === (args.scene || "").toLowerCase());
+    if (!scene) return { error: `scene must be one of ${VALID_SCENES.join(", ")}` };
+
+    const { slotTypes, error } = await getPublishedSlotTypes(scene);
+    if (error) return { error };
+
+    return {
+      scene,
+      pages: slotTypes.map((type, i) => ({ page: i + 1, type })),
+      rules: {
+        NORMAL: "1 answer, marked correct",
+        MULTICHOICE: "4 answers: 1 correct + 3 decoys",
+        COMBO: "1 or more correct answers + any number of decoys",
+      },
+    };
+  },
+
+  // Drafts one clue per page of the scene's question set, each in that
+  // page's type (see lib/clueTemplates.js) - the same generator the campaign
+  // editor's "Generate Clues from a Lesson" uses.
   generate_clues_from_notes: async (args) => {
     const scene = VALID_SCENES.find((s) => s.toLowerCase() === (args.scene || "").toLowerCase());
     if (!scene) return { error: `scene must be one of ${VALID_SCENES.join(", ")}` };
     if (!args.notes || !args.notes.trim()) return { error: "notes is required" };
 
-    const prompt = buildCluePrompt(args.notes, scene);
+    const generated = await generateCluesForScene(
+      args.notes,
+      scene,
+      "generate_clues_from_notes",
+      normalizeDifficulty(args.difficulty)
+    );
+    if (generated.error) return { error: generated.message };
 
-    try {
-      const { text: rawText, provider } = await generateText(prompt);
-      console.log(`[teacherChatTools] generate_clues_from_notes answered via ${provider}`);
-      let clues = parseClueResponse(rawText);
-
-      if (!clues) {
-        const correctivePrompt = `${prompt}\n\nYour previous response was not a valid JSON array matching the required shape. Respond again with ONLY a valid JSON array, no markdown, no commentary.`;
-        const { text: retryText } = await generateText(correctivePrompt);
-        clues = parseClueResponse(retryText);
-      }
-
-      if (!clues) return { error: "The AI returned malformed JSON after retry" };
-
-      return { scene, clues };
-    } catch (err) {
-      return { error: `AI request failed: ${err.message}` };
-    }
+    return {
+      scene,
+      difficulty: generated.difficulty,
+      clues: generated.clues.map((c) => ({ type: c.type, question: c.clueText, note: c.note, answers: c.answers })),
+    };
   },
 
   create_room: async (args, teacherId) => {
@@ -356,32 +392,56 @@ export const toolImplementations = {
 
   apply_generated_clues: async (args, teacherId) => {
     const campaignId = parseInt(args.campaignId);
-    const clues = args.clues;
 
-    if (!Number.isInteger(campaignId) || !Array.isArray(clues) || clues.length === 0)
+    if (!Number.isInteger(campaignId) || !Array.isArray(args.clues) || args.clues.length === 0)
       return { error: "campaignId and a non-empty clues array are required" };
-    if (clues.some((c) => !c.question || !c.answer))
-      return { error: "Each clue needs a question and answer" };
 
     const campaign = await prisma.campaign.findUnique({
       where: { id: campaignId },
       include: { room: { select: { teacherId: true } } },
     });
     if (!campaign || campaign.room.teacherId !== teacherId) return { error: "Campaign not found" };
+    if (!campaign.scene)
+      return { error: "This campaign has no scene yet, so its question set can't be determined" };
 
+    // A bare {question, answer} pair is still accepted as a Normal clue.
+    const clues = args.clues.map((c) => ({
+      type: c.type || "NORMAL",
+      question: c.question,
+      note: typeof c.note === "string" && c.note.trim() ? c.note.trim() : null,
+      answers: Array.isArray(c.answers) ? c.answers : c.answer ? [{ text: c.answer, isCorrect: true }] : [],
+    }));
+
+    // The clue set is fixed by the scene's question set - same checks as the
+    // campaign editor (routes/campaigns.js).
+    const templateError = await validateCluesAgainstTemplate(campaign.scene, clues);
+    if (templateError) return { error: templateError };
+
+    // The set is saved whole, so any clues already there are replaced - only
+    // allowed on a draft nobody has played, since deleting clues also deletes
+    // the attempts recorded against them.
     const existingCount = await prisma.clue.count({ where: { campaignId } });
+    if (existingCount > 0) {
+      if (campaign.isPublished)
+        return { error: "This published campaign already has clues and can't be changed" };
+      if (await hasPlayHistory(campaignId))
+        return { error: "This campaign already has play history, so its clues can't be replaced" };
+      await prisma.clue.deleteMany({ where: { campaignId } });
+    }
 
-    // A clue's answers live in their own ClueAnswer rows now (see schema.prisma), so each
-    // generated question/answer pair is saved as a NORMAL clue with its one correct answer.
-    // createMany can't create the nested answers, hence one create per clue.
+    // A clue's answers live in their own ClueAnswer rows (see schema.prisma),
+    // which createMany can't create, hence one create per clue.
     for (let i = 0; i < clues.length; i++) {
       await prisma.clue.create({
         data: {
           campaignId,
-          orderNumber: existingCount + i + 1,
-          type: "NORMAL",
+          orderNumber: i + 1,
+          type: clues[i].type,
           question: clues[i].question,
-          answers: { create: [{ text: clues[i].answer, isCorrect: true, order: 0 }] },
+          note: clues[i].note,
+          answers: {
+            create: clues[i].answers.map((a, j) => ({ text: a.text, isCorrect: !!a.isCorrect, order: j })),
+          },
         },
       });
     }

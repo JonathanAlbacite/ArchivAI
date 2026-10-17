@@ -115,6 +115,12 @@ const withTimeout = (promise, provider, ms) =>
 // per-generation glitch in what THIS provider's model produced, not a
 // malformed request on our end, so — unlike other 400s — the same request
 // plausibly succeeds against the next provider in the chain.
+//
+// A 413 is retryable for the same reason: Groq's free tier caps a request at
+// 8000 tokens per minute (TPM) and answers a bigger one with 413 /
+// error.code "rate_limit_exceeded" ("Request too large"). The teacher chat
+// is what hits it - its history, system prompt and tool definitions together
+// can pass that cap - and a provider with a larger limit can still serve it.
 const isRetryableFailure = (err) => {
   if (err?.isTimeout) return true;
   const status = err?.status;
@@ -122,8 +128,10 @@ const isRetryableFailure = (err) => {
   if (status === 402 || status === 429 || status === 401 || status === 403 || (status >= 500 && status < 600))
     return true;
   if (err?.error?.code === "tool_use_failed") return true;
+  if (status === 413 || err?.error?.code === "rate_limit_exceeded" || err?.error?.error?.code === "rate_limit_exceeded")
+    return true;
   if (/\b(402|429|401|403|500|502|503|504)\b/.test(message)) return true;
-  if (/tool_use_failed|failed to parse tool call/.test(message)) return true;
+  if (/tool_use_failed|failed to parse tool call|rate_limit_exceeded|request too large/.test(message)) return true;
   return /rate limit|too many requests|invalid api key|api key not valid|unauthorized|payment required|quota|fetch failed|econnreset|etimedout|network/.test(
     message
   );

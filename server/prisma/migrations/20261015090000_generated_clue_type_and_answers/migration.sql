@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE `GeneratedClue` ADD COLUMN `answers` JSON NULL,
+    ADD COLUMN `clueType` ENUM('NORMAL', 'MULTICHOICE', 'COMBO') NOT NULL DEFAULT 'NORMAL';
