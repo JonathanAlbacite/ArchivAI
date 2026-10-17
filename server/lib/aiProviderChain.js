@@ -74,6 +74,12 @@ console.log(
 // next provider, within a bounded amount of time.
 const REQUEST_TIMEOUT_MS = 20000;
 
+// Clue generation asks for a long answer (a whole array of questions and
+// hints), which the models take longer to write than a chat turn, so it gets
+// a longer ceiling per provider. A real Medium run timed out on two providers
+// at 20 s during a retry and failed the whole request.
+const GENERATION_TIMEOUT_MS = 40000;
+
 class ProviderTimeoutError extends Error {
   constructor(provider, ms) {
     super(`AI provider (${provider}) did not respond within ${ms}ms`);
@@ -143,13 +149,13 @@ const isRetryableFailure = (err) => {
 // provider actually answered (for server-side logging only — this is never
 // shown to the teacher). Throws a single, clear error only once every
 // provider in the chain has been tried and failed.
-const runChain = async (attempt) => {
+const runChain = async (attempt, timeoutMs = REQUEST_TIMEOUT_MS) => {
   let lastErr;
 
   for (const provider of availableProviders) {
     const client = clients[provider];
     try {
-      const result = await withTimeout(attempt(client), provider, REQUEST_TIMEOUT_MS);
+      const result = await withTimeout(attempt(client), provider, timeoutMs);
       return { ...result, provider };
     } catch (err) {
       lastErr = err;
@@ -171,7 +177,23 @@ const runChain = async (attempt) => {
 // Plain single-turn text generation (no tools) — used for clue generation
 // (teacherChatTools.js's generate_clues_from_notes tool, and the standalone
 // /lesson-modules/:id/generate-clues route). Returns { text, provider }.
-export const generateText = (prompt) => runChain((client) => client.generateText(prompt).then((text) => ({ text })));
+//
+// A provider that answers with an empty reply counts as failed, so the chain
+// moves on to the next provider instead of returning nothing (an empty reply was
+// seen from OpenRouter after two timeouts).
+export const generateText = (prompt) =>
+  runChain(
+    (client) =>
+      client.generateText(prompt).then((text) => {
+        if (!String(text ?? "").trim()) {
+          const err = new Error("empty reply");
+          err.status = 502;
+          throw err;
+        }
+        return { text };
+      }),
+    GENERATION_TIMEOUT_MS
+  );
 
 // One turn of the teacher chatbot's tool-calling loop (see routes/chat.js).
 // `messages` is the neutral message history ({role, content, functionCall?}),

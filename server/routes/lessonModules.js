@@ -4,7 +4,13 @@ import path from "path";
 import fs from "fs/promises";
 import fssync from "fs";
 import prisma from "../lib/prisma.js";
-import { generateCluesForScene, validateAnswersForType, normalizeDifficulty } from "../lib/clueTemplates.js";
+import {
+  generateCluesForScene,
+  generateStandaloneNotes,
+  getStandaloneNoteCount,
+  validateAnswersForType,
+  normalizeDifficulty,
+} from "../lib/clueTemplates.js";
 import { ALLOWED_EXTENSIONS, extractTextFromFile } from "../lib/documentText.js";
 import { protect, teacherOnly } from "../middleware/auth.js";
 
@@ -150,6 +156,61 @@ router.post("/lesson-modules/:id/generate-clues", protect, teacherOnly, async (r
     });
 
     res.status(201).json(generatedClues);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: Generate the additional notes (standalone hints) for a scene from a
+// lesson module's text. How many comes from the scene's published vault
+// template. `clueIds` = the generated clues just made from the same lesson: the
+// notes are written about other facts and never contain their answers or wrong
+// options, so no note points to a question. Nothing is saved here; the campaign
+// editor puts the notes on its last page and they are saved with the campaign.
+router.post("/lesson-modules/:id/generate-notes", protect, teacherOnly, async (req, res) => {
+  const lessonModuleId = parseInt(req.params.id);
+  const scene = VALID_SCENES.find((s) => s.toLowerCase() === (req.body.scene || "").toLowerCase());
+
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+
+  try {
+    const { lessonModule, error, message } = await findOwnedLessonModule(lessonModuleId, req.user.id);
+    if (error) return res.status(error).json({ message });
+
+    if (!lessonModule.extractedText?.trim())
+      return res.status(422).json({ message: "Lesson module has no extracted text to generate notes from" });
+
+    const count = await getStandaloneNoteCount(scene);
+    if (count === 0) return res.json({ notes: [] });
+
+    const clueIds = Array.isArray(req.body.clueIds)
+      ? req.body.clueIds.map((id) => parseInt(id)).filter((id) => Number.isInteger(id))
+      : [];
+    const usedClues = clueIds.length
+      ? await prisma.generatedClue.findMany({ where: { id: { in: clueIds }, lessonModuleId } })
+      : [];
+
+    const avoid = { texts: [], phrases: [] };
+    for (const c of usedClues) {
+      avoid.texts.push(c.clueText);
+      if (c.note) avoid.texts.push(c.note);
+      const options = Array.isArray(c.answers) && c.answers.length ? c.answers : [{ text: c.answerText }];
+      for (const a of options) if (a?.text && !avoid.phrases.includes(a.text)) avoid.phrases.push(a.text);
+    }
+
+    const generated = await generateStandaloneNotes(
+      lessonModule.extractedText,
+      count,
+      avoid,
+      `generate-notes (lesson module ${lessonModuleId})`,
+      normalizeDifficulty(req.body.difficulty)
+    );
+
+    if (generated.error === "ai_failed")
+      return res.status(502).json({ message: "AI request failed", error: generated.message });
+    if (generated.error) return res.status(502).json({ message: generated.message });
+
+    res.json({ notes: generated.notes });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

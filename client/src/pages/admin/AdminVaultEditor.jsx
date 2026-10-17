@@ -19,12 +19,18 @@ const CLUE_TYPES = [
 // publish — to change it again, unpublish first (see handleUnpublish).
 // Whatever's published here is exactly the structure campaigns.js now
 // requires a teacher's clue set to match, in order, for this scene.
+// Most additional notes a vault can ask for (the server checks the same limit).
+const MAX_STANDALONE_NOTES = 10;
+
 function AdminVaultEditor() {
   const { scene } = useParams();
   const navigate = useNavigate();
   const meta = getSceneMeta(scene);
 
   const [slots, setSlots] = useState([]);
+  // How many additional notes (standalone hints) every campaign in this vault
+  // carries on its last page. They belong to no question.
+  const [noteCount, setNoteCount] = useState(0);
   const [isPublished, setIsPublished] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -53,6 +59,7 @@ function AdminVaultEditor() {
       }
 
       setSlots(data.slots.map((s) => ({ type: s.type })));
+      setNoteCount(data.standaloneNoteCount || 0);
       setIsPublished(data.isPublished);
     } catch (err) {
       console.error(err);
@@ -91,7 +98,7 @@ function AdminVaultEditor() {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/vault-templates/${scene}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...authHeaders },
-        body: JSON.stringify({ slots }),
+        body: JSON.stringify({ slots, standaloneNoteCount: noteCount }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -156,6 +163,11 @@ function AdminVaultEditor() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const changeNoteCount = (value) => {
+    const n = parseInt(value, 10);
+    setNoteCount(Number.isNaN(n) ? 0 : Math.min(MAX_STANDALONE_NOTES, Math.max(0, n)));
   };
 
   const fieldStyle = {
@@ -266,6 +278,21 @@ function AdminVaultEditor() {
                     </div>
                   ))}
                 </div>
+                <div
+                  style={{
+                    padding: "12px 16px",
+                    borderRadius: "10px",
+                    background: "rgba(255,255,255,0.03)",
+                    border: `1px solid ${colors.vaultBorder}`,
+                    marginBottom: "24px",
+                    fontFamily: fonts.body,
+                    fontSize: "13px",
+                    color: "#EFE6D6",
+                    fontWeight: "600",
+                  }}
+                >
+                  Additional notes: {noteCount}
+                </div>
                 <button
                   onClick={handleUnpublish}
                   disabled={saving}
@@ -362,6 +389,25 @@ function AdminVaultEditor() {
                 >
                   + Add Slot
                 </button>
+
+                <div style={{ marginBottom: "28px" }}>
+                  <label style={{ fontFamily: fonts.body, fontSize: "13px", fontWeight: "600", color: "#EFE6D6" }}>
+                    Additional notes
+                  </label>
+                  <p style={{ fontFamily: fonts.body, fontSize: "12px", color: "#B9AC96", margin: "4px 0 8px 0" }}>
+                    Extra facts from the lesson that belong to no question. They appear on the last page of the
+                    campaign editor, mixed in with the hints so players cannot tell which hint goes with which
+                    answer. Use 0 for none.
+                  </p>
+                  <input
+                    type="number"
+                    min={0}
+                    max={MAX_STANDALONE_NOTES}
+                    value={noteCount}
+                    onChange={(e) => changeNoteCount(e.target.value)}
+                    style={{ ...fieldStyle, width: "90px" }}
+                  />
+                </div>
 
                 <div style={{ display: "flex", gap: "12px" }}>
                   <button

@@ -50,7 +50,11 @@ function CampaignBookViewer({ campaignId, onClose }) {
   }
 
   const clues = campaign.clues || [];
-  const pageCount = Math.max(clues.length, 1);
+  // Additional notes (standalone hints) sit on one last page after the clues.
+  const standaloneNotes = campaign.standaloneNotes || [];
+  const hasNotesPage = standaloneNotes.length > 0;
+  const pageCount = Math.max(clues.length + (hasNotesPage ? 1 : 0), 1);
+  const isNotesPage = hasNotesPage && pageIndex === clues.length;
   const currentClue = clues[pageIndex];
   const sceneMeta = getSceneMeta(campaign.scene);
 
@@ -101,7 +105,19 @@ function CampaignBookViewer({ campaignId, onClose }) {
 
   const CLUE_TYPE_LABELS = { NORMAL: "Normal", MULTICHOICE: "MultiChoice", COMBO: "Combo" };
 
-  const rightPage = clues.length === 0 ? (
+  const rightPage = isNotesPage ? (
+    <div>
+      <p style={{ fontFamily: fonts.flourish, fontSize: "13px", color: colors.ember, letterSpacing: "1px", margin: "0 0 16px 0" }}>
+        Additional Notes
+      </p>
+      {standaloneNotes.map((n, i) => (
+        <div key={i} style={{ marginBottom: "14px" }}>
+          <p style={{ fontFamily: fonts.body, fontSize: "13px", fontWeight: "600", color: colors.ink, margin: "0 0 4px 0" }}>Note {i + 1}</p>
+          <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.inkMuted, margin: 0, lineHeight: 1.5 }}>{n}</p>
+        </div>
+      ))}
+    </div>
+  ) : clues.length === 0 ? (
     <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted }}>No clues added to this campaign yet.</p>
   ) : (
     <div>

@@ -28,6 +28,7 @@ export async function exportVaultTemplatesSnapshot() {
   const snapshot = templates.map((t) => ({
     scene: t.scene,
     isPublished: t.isPublished,
+    standaloneNoteCount: t.standaloneNoteCount,
     slots: t.slots.map((s) => s.type),
   }));
 

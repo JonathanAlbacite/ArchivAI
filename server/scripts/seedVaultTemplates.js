@@ -33,10 +33,17 @@ export async function seedVaultTemplates() {
   const snapshot = JSON.parse(fs.readFileSync(SEED_PATH, "utf-8"));
 
   for (const entry of snapshot) {
+    // An older snapshot has no standaloneNoteCount: that means no additional notes for a new
+    // vault, and an existing vault keeps the count it already has.
+    const standaloneNoteCount = entry.standaloneNoteCount ?? 0;
+
     const template = await prisma.vaultTemplate.upsert({
       where: { scene: entry.scene },
-      update: { isPublished: entry.isPublished },
-      create: { scene: entry.scene, isPublished: entry.isPublished },
+      update: {
+        isPublished: entry.isPublished,
+        ...(entry.standaloneNoteCount !== undefined && { standaloneNoteCount }),
+      },
+      create: { scene: entry.scene, isPublished: entry.isPublished, standaloneNoteCount },
     });
 
     await prisma.templateSlot.deleteMany({ where: { templateId: template.id } });
@@ -45,7 +52,7 @@ export async function seedVaultTemplates() {
     });
 
     console.log(
-      `Seeded "${entry.scene}" - ${entry.slots.length} slot(s), ${entry.isPublished ? "published" : "draft"}.`
+      `Seeded "${entry.scene}" - ${entry.slots.length} slot(s), ${standaloneNoteCount} additional note(s), ${entry.isPublished ? "published" : "draft"}.`
     );
   }
 }

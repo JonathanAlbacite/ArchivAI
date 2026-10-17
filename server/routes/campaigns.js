@@ -127,6 +127,50 @@ async function validateAgainstTemplate(scene, clues) {
   return null;
 }
 
+// Additional notes (standalone hints): short facts that belong to no question.
+// How many a campaign needs is the vault template's standaloneNoteCount. The
+// editor sends them as `standaloneNotes` (an array of strings) together with the
+// clues. Returns { error } or { notes }, where `notes` is the cleaned list to
+// save, or null when the request did not send any (the saved notes then stay as
+// they are). A vault that asks for none saves none.
+const MAX_NOTE_CHARS = 600;
+async function resolveStandaloneNotes(scene, notes) {
+  if (notes === undefined) return { notes: null };
+
+  const template = await prisma.vaultTemplate.findUnique({
+    where: { scene: (scene || "").toLowerCase().trim() },
+    select: { standaloneNoteCount: true },
+  });
+  const count = template?.standaloneNoteCount || 0;
+  if (count === 0) return { notes: [] };
+
+  if (!Array.isArray(notes) || notes.length !== count)
+    return { error: `This vault's template has ${count} additional note(s) - got ${Array.isArray(notes) ? notes.length : 0}` };
+
+  const cleaned = notes.map((n) => (typeof n === "string" ? n.trim() : ""));
+  if (cleaned.some((n) => !n)) return { error: "Every additional note needs text" };
+  if (cleaned.some((n) => n.length > MAX_NOTE_CHARS))
+    return { error: `Each additional note can have at most ${MAX_NOTE_CHARS} characters` };
+
+  return { notes: cleaned };
+}
+
+// Replaces a campaign's saved additional notes with `notes` (in order).
+async function replaceStandaloneNotes(campaignId, notes) {
+  await prisma.standaloneNote.deleteMany({ where: { campaignId } });
+  if (notes.length > 0) {
+    await prisma.standaloneNote.createMany({
+      data: notes.map((text, i) => ({ campaignId, orderNumber: i + 1, text })),
+    });
+  }
+}
+
+// A campaign's saved additional notes as plain text, in order.
+async function getStandaloneNoteTexts(campaignId) {
+  const rows = await prisma.standaloneNote.findMany({ where: { campaignId }, orderBy: { orderNumber: "asc" } });
+  return rows.map((r) => r.text);
+}
+
 // Teacher: Add the full clue set to a freshly-created campaign. Unlike a
 // generic "append" endpoint, this only ever runs once per campaign - the
 // clue set's size and per-page type are fixed by the scene's published
@@ -134,7 +178,7 @@ async function validateAgainstTemplate(scene, clues) {
 // afterward. Editing an existing set goes through PUT below instead.
 router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);
-  const { clues } = req.body;
+  const { clues, standaloneNotes } = req.body;
 
   if (!Array.isArray(clues) || clues.length === 0)
     return res.status(400).json({ message: "clues must be a non-empty array" });
@@ -159,6 +203,9 @@ router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
     const templateError = await validateAgainstTemplate(campaign.scene, clues);
     if (templateError) return res.status(400).json({ message: templateError });
 
+    const noteResult = await resolveStandaloneNotes(campaign.scene, standaloneNotes);
+    if (noteResult.error) return res.status(400).json({ message: noteResult.error });
+
     // createMany() can't create nested relations in one call, so each
     // clue (with its answers) is created individually instead - clue
     // counts per campaign are small (authored by hand, fixed by the
@@ -178,6 +225,8 @@ router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
         },
       });
     }
+
+    if (noteResult.notes) await replaceStandaloneNotes(campaignId, noteResult.notes);
 
     const allClues = await prisma.clue.findMany({
       where: { campaignId },
@@ -200,7 +249,7 @@ router.post("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
 // campaign with play history (e.g. one that was unpublished) is refused.
 router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
   const campaignId = parseInt(req.params.id);
-  const { clues } = req.body;
+  const { clues, standaloneNotes } = req.body;
 
   if (!Array.isArray(clues) || clues.length === 0)
     return res.status(400).json({ message: "clues must be a non-empty array" });
@@ -225,6 +274,9 @@ router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
     const templateError = await validateAgainstTemplate(campaign.scene, clues);
     if (templateError) return res.status(400).json({ message: templateError });
 
+    const noteResult = await resolveStandaloneNotes(campaign.scene, standaloneNotes);
+    if (noteResult.error) return res.status(400).json({ message: noteResult.error });
+
     // ClueAnswer rows cascade-delete with their Clue (onDelete: Cascade
     // in schema.prisma), so clearing Clue also clears their old answers.
     await prisma.clue.deleteMany({ where: { campaignId } });
@@ -244,6 +296,8 @@ router.put("/campaigns/:id/clues", protect, teacherOnly, async (req, res) => {
         },
       });
     }
+
+    if (noteResult.notes) await replaceStandaloneNotes(campaignId, noteResult.notes);
 
     const allClues = await prisma.clue.findMany({
       where: { campaignId },
@@ -496,6 +550,7 @@ router.post("/campaigns/:id/duplicate", protect, teacherOnly, async (req, res) =
           orderBy: { orderNumber: "asc" },
           include: { answers: { orderBy: { order: "asc" } } },
         },
+        standaloneNotes: { orderBy: { orderNumber: "asc" } },
       },
     });
     if (!source) return res.status(404).json({ message: "Campaign not found" });
@@ -510,6 +565,9 @@ router.post("/campaigns/:id/duplicate", protect, teacherOnly, async (req, res) =
         scene: source.scene,
         storyPath: source.storyPath,
         isPublished: false,
+        standaloneNotes: {
+          create: source.standaloneNotes.map((n) => ({ orderNumber: n.orderNumber, text: n.text })),
+        },
         clues: {
           create: source.clues.map((c) => ({
             orderNumber: c.orderNumber,
@@ -574,8 +632,11 @@ router.get("/campaigns/:id", protect, async (req, res) => {
 
     // attachmentPath is a server-local filesystem path — students/teacher
     // never need it directly, they hit GET /campaigns/:id/attachment instead.
+    // The additional notes are for the owning teacher to edit; a student's copy has none.
+    const standaloneNotes = isOwner ? await getStandaloneNoteTexts(campaignId) : [];
+
     const { room, attachmentPath, ...campaignData } = campaign;
-    res.json({ ...campaignData, clues });
+    res.json({ ...campaignData, clues, standaloneNotes });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
@@ -618,6 +679,8 @@ router.get("/campaigns/:id/load", protect, async (req, res) => {
       scene: campaign.scene,
       storyPath: campaign.storyPath,
       clues,
+      // The game reads these by position as its Standalone Notes (text000, text001, ...).
+      standaloneNotes: await getStandaloneNoteTexts(campaignId),
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });

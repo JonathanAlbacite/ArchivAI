@@ -65,7 +65,7 @@ export const normalizeDifficulty = (value) => {
 };
 
 const HINT_TAIL = (aim) =>
-  `Never copy the question into the note, never write the note as a question, never write it as the question followed by the answer, and never add facts, explanations or details of your own. The "hint" part must contain the correct answer exactly as it is written in the answer field (for a Combo question, every correct answer). Neither part may contain a wrong option (decoy). Neither part may mention a question, a player, a clue or a hint. "hintIntro" and "hint" together have at most ${aim} words.`;
+  `Never copy the question into the note, never write the note as a question, never write it as the question followed by the answer, and never add facts, explanations or details of your own. The "hint" part must contain the correct answer exactly as it is written in the answer field (for a Combo question, every correct answer). Neither part may contain a wrong option (decoy). Both parts must be real facts about the subject itself, never sentences about the text, such as "the topic is mentioned", "the section lists" or "this part explains" (do not use the words mention, section, chapter, passage, paragraph, lesson or module). Neither part may mention a question, a player, a clue, a hint or the document (never write the word "document" or "text" in the note). Change the order and the structure of the sentence first (for example "The highest mountain in the Philippines is Mount Apo." instead of "Mount Apo is the highest mountain in the Philippines." - style only); use a simple synonym only for one or two words, never for a key term of the topic, and keep every other word from the document. "hintIntro" and "hint" together have at most ${aim} words.`;
 
 const DIFFICULTY_SETTINGS = {
   easy: {
@@ -89,10 +89,10 @@ const DIFFICULTY_SETTINGS = {
     hintMax: 55,
     sourceMatch: 0.7,
     intro: true,
-    copyRun: 5,
+    copyRun: 6,
     questionRule:
       'Question style: each question is ONE sentence of at most 18 words that asks for one fact only. Do not copy the document\'s wording: ask for the same fact with a synonym or a different sentence shape, but keep the exact meaning and the same subject, and do not use any fact or idea that the document does not contain. Example of the style only (never use its content): the document says "The elephant is the largest land animal" and the question is "Which animal is bigger than every other animal on land?" Do not join several ideas with "and", "which" or "that", and do not write "which of the following".',
-    hintRule: `Hint: every question also has a short note that the player reads to find the answer. The note has two parts, written as two JSON fields. "hintIntro" is ONE plain sentence with a related fact from the same section of the document; it must NOT contain the answer and must not mention any answer option, correct or wrong. "hint" is ONE plain sentence that states the fact the question asks about and contains the answer. The player reads hintIntro first and then hint, so the answer always comes in the second part. Say the fact in "hint" in simple words that differ from the question: use a different sentence structure or a simple synonym, with exactly the same meaning, and never repeat five or more words in a row from the question. Keep most of the words from the document and change only a few of them; keep the words simple and everyday. If the document is a list of questions and answers, turn each question and its answer into statements. Example of the style only (never use its content): for the question "What is the largest land animal?" and the answer "Elephant", hintIntro is "Many animals live on land and eat plants." and hint is "The elephant is the biggest of them all, and it lives in groups called herds." ${HINT_TAIL(40)}`,
+    hintRule: `Hint: every question also has a short note that the player reads to find the answer. The note has two parts, written as two JSON fields. "hintIntro" is ONE plain sentence with a related fact about the same topic, taken from the document; it must NOT contain the answer and must not mention any answer option, correct or wrong. "hint" is ONE plain sentence that states the fact the question asks about and contains the answer. The player reads hintIntro first and then hint, so the answer always comes in the second part. Say the fact in "hint" in simple words that differ from the question: use a different sentence structure or a simple synonym, with exactly the same meaning, and never repeat six or more words in a row from the question. Keep most of the words from the document and change only a few of them; keep the words simple and everyday. If the document is a list of questions and answers, turn each question and its answer into statements. Example of the style only (never use its content): for the question "What is the largest land animal?" and the answer "Elephant", hintIntro is "Many animals live on land and eat plants." and hint is "The elephant is the biggest of them all, and it lives in groups called herds." ${HINT_TAIL(40)}`,
     decoyExtra:
       " Decoys should be items of the same kind as the correct answer, taken from the same section of the document where possible. Choose the related facts of the hint so that none of them mentions a decoy.",
   },
@@ -104,10 +104,10 @@ const DIFFICULTY_SETTINGS = {
     hintMax: 70,
     sourceMatch: 0.55,
     intro: true,
-    copyRun: 5,
+    copyRun: 6,
     questionRule:
       'Question style: each question is ONE sentence of at most 20 words that asks for one fact only. Do not name the topic in the document\'s own words: describe it instead, through a feature the document states (for example "the only", "the first", "the largest of", what it does, or the meaning of a term and ask for the term itself), and use synonyms or a different sentence shape. Keep the exact meaning and the same subject, and do not use any fact or idea that the document does not contain. Example of the style only (never use its content): the document says "The elephant is the largest land animal" and the question is "Which creature is heavier than every other animal that lives on land?" Do not join several ideas with "and", "which" or "that", and do not write "which of the following".',
-    hintRule: `Hint: every question also has a short note that the player reads to find the answer. The note has two parts, written as two JSON fields. "hintIntro" is one or two plain sentences with related facts from the same section of the document (it may join two connected facts); it must NOT contain the answer and must not mention any answer option, correct or wrong. "hint" is one or two plain sentences that state the fact the question asks about and contain the answer. The player reads hintIntro first and then hint, so the answer is never at the start and the player has to read the whole note to pick it out. Say the fact in "hint" in a different sentence structure from the question (use the passive voice, reorder the clauses, or use a simple synonym for a few words) but keep the exact meaning, and never repeat five or more words in a row from the question. Keep most of the words from the document and change only about one word in four. Every sentence must be true according to the document. If the document is a list of questions and answers, turn each question and its answer into statements. Example of the style only (never use its content): for the answer "Elephant", hintIntro is "Plants are the only food of the heaviest animal living on land." and hint is "That animal, the elephant, lives in family groups called herds." ${HINT_TAIL(55)}`,
+    hintRule: `Hint: every question also has a short note that the player reads to find the answer. The note has two parts, written as two JSON fields. "hintIntro" is one or two plain sentences with related facts about the same topic, taken from the document (it may join two connected facts); it must NOT contain the answer and must not mention any answer option, correct or wrong. "hint" is one or two plain sentences that state the fact the question asks about and contain the answer. The player reads hintIntro first and then hint, so the answer is never at the start and the player has to read the whole note to pick it out. Say the fact in "hint" in a different sentence structure from the question (use the passive voice, reorder the clauses, or use a simple synonym for a few words) but keep the exact meaning, and never repeat six or more words in a row from the question. Keep most of the words from the document and change only about one word in four. Every sentence must be true according to the document. If the document is a list of questions and answers, turn each question and its answer into statements. Example of the style only (never use its content): for the answer "Elephant", hintIntro is "Plants are the only food of the heaviest animal living on land." and hint is "That animal, the elephant, lives in family groups called herds." ${HINT_TAIL(55)}`,
     decoyExtra:
       " Decoys must be near-misses: items of the same kind as the correct answer, from the same list or section of the document, believable and similar in length and style. Choose the related facts of the hint so that none of them mentions a decoy.",
   },
@@ -129,6 +129,26 @@ const DIFFICULTY_SETTINGS = {
 // styles; parseClueResponse enforces what code can check (question length,
 // hint is a statement that contains the answer and does not repeat the
 // question, hint uses only the document's words).
+// Tells the model exactly how the program judges its reply, so it can check its
+// own hints before answering. The numbers come from the level's settings, so
+// this text and parseClueResponse always agree. The example is style only.
+const checkingNote = (level) => {
+  const lines = [
+    `- Length: a question has at most ${level.questionMax} words; ${level.intro ? 'the note ("hintIntro" and "hint" together)' : "the hint"} has at most ${level.hintMax} words.`,
+    `- The answer: the "hint" contains the correct answer exactly as written${level.intro ? '; "hintIntro" never contains it' : ""}; no wrong option (decoy) appears in ${level.intro ? "either part" : "the hint"}.`,
+    `- Document check: the program takes every meaningful word of the hint (words of four or more letters, and numbers) and looks it up in the document, ignoring only plural and tense endings. At least ${Math.round(level.sourceMatch * 100)} out of every 100 of those words must be found in the document. A word the document never uses counts as missing, even when it is a correct synonym: for example "tallest" is missing when the document says "highest", and so are words such as "major", "famous", "notable", "serves" or "among" unless the document contains them. When you are unsure, use the document's own word.`,
+    `- Subject check: the hint fails if it talks about the text itself instead of stating a fact about the subject: the words mention (mentioned, mentions), section, chapter, passage, paragraph, lesson and module are not allowed unless the document itself uses them as part of the topic. Write what is true about the subject, for example "Asia has the most people of all the continents", never "the section lists the continents".`,
+  ];
+  if (level.copyRun > 0) {
+    lines.push(
+      `- Copy check: the program compares the hint with your question. If ${level.copyRun} or more words in a row from the question appear in the same order in the hint, the hint fails. Example of the check only (never use its content): for the question "What is the largest ocean on Earth?", the hint "The Pacific is the largest ocean on Earth." fails, because "is the largest ocean on Earth" is repeated; the hint "On Earth, the largest ocean is the Pacific." passes, because it uses the same words in a different order and no ${level.copyRun} words stay together. Fix a hint that fails this check by moving its parts around (start with the place or the description, or put the answer in the middle), never by inventing new words, because the document check above would then fail.`
+    );
+  }
+  return `How your answer is checked: a program checks every question, and a question that fails is sent back to you with the reason.
+${lines.join("\n")}
+Before you answer, check each hint yourself against these points.`;
+};
+
 export const buildCluePrompt = (extractedText, slotTypes, difficulty = "easy") => {
   const level = DIFFICULTY_SETTINGS[normalizeDifficulty(difficulty)];
 
@@ -146,6 +166,8 @@ Rules:
 - MultiChoice and Combo options may be short terms or short descriptive phrases taken from the document. Keep each option brief enough to read on one line, and keep the options in a question similar in length and style.
 - A wrong option (decoy) must be wrong according to the document but still believable. Where possible, take decoys from other terms or facts in the document. If the document has no suitable alternative, use a short wrong option of the same kind as the correct answer. A decoy must never repeat or contain a correct answer, and it must not appear in the hint.${level.decoyExtra}
 - If the document is short, still return the required number of questions, but every question must still be answered by the document. Ask about the same section from a different angle instead of inventing content.
+
+${checkingNote(level)}
 
 Return ONLY a valid JSON array (no markdown, no code fences, no commentary) of exactly ${slotTypes.length} question objects, in this exact order. Each object must have exactly the fields shown for its type:
 ${slotTypes.map((type, i) => `${i + 1}. ${level.intro ? CLUE_TYPE_INSTRUCTIONS[type].replace('"hint": "..."', '"hintIntro": "...", "hint": "..."') : CLUE_TYPE_INSTRUCTIONS[type]}`).join("\n")}
@@ -259,6 +281,15 @@ const hintHasAnswer = (plainHint, answer) => {
 
   const hintWords = new Set(plainHint.split(" "));
   return answerWords.filter((w) => hintWords.has(w)).length / answerWords.length >= 0.8;
+};
+
+// Words that show a sentence is about the text itself ("is mentioned among its
+// facts", "the section lists ...") and not about the subject. A word is allowed
+// when the document uses it itself (a document about book chapters, say).
+const TEXT_TALK = /\b(mention|mentions|mentioned|mentioning|section|sections|chapter|chapters|passage|passages|paragraph|paragraphs|lesson|lessons|module|modules)\b/gi;
+const aboutTheText = (text, source) => {
+  const found = (String(text).match(TEXT_TALK) || []).map((w) => w.toLowerCase());
+  return [...new Set(found)].filter((w) => !source || !source.words.has(wordKey(w)));
 };
 
 // Parses and validates the AI response against the template's slot types and
@@ -391,10 +422,14 @@ export const parseClueResponse = (rawText, slotTypes, sourceText, difficulty = "
         }
       }
     }
+    const textTalk = aboutTheText(hint, source);
+    if (textTalk.length > 0) {
+      fail(`the hint talks about the text itself (${textTalk.map((w) => `"${w}"`).join(", ")}) instead of stating a fact about the subject. ${intro ? 'Make "hintIntro" a real related fact about the subject, for example a property or a detail of the same topic, and never a sentence about what the text mentions or lists.' : "State the fact itself."}`);
+    }
     if (level.copyRun > 0) {
       const copied = copiesQuestionRun(plainHint, question, level.copyRun);
       if (copied) {
-        fail(`the hint repeats "${copied}" from the question. Say it in simple different words with the same meaning.`);
+        fail(`the hint repeats "${copied}" from the question. Change the order of the sentence instead of adding new words: begin it with a different part (for example the place or the description) and keep the document's own words, with the same meaning.`);
       }
     }
     if (hintWords > level.hintMax) {
@@ -417,7 +452,7 @@ export const parseClueResponse = (rawText, slotTypes, sourceText, difficulty = "
       const sourceCheck = checkHintSource(hint, source, level.sourceMatch);
       if (!sourceCheck.ok) {
         const examples = sourceCheck.missing.slice(0, 5).map((w) => `"${w}"`).join(", ");
-        fail(`the hint uses words or facts that are not in the document${examples ? ` (for example ${examples})` : ""}. State only what the document says: replace those words with the document's own words.`);
+        fail(`the hint uses words or facts that are not in the document${examples ? ` (for example ${examples})` : ""}. State only what the document says: replace those words with the document's own words. Do not swap a word for a synonym; change the order of the sentence instead.`);
       }
     }
 
@@ -506,7 +541,7 @@ export const validateCluesAgainstTemplate = async (scene, clues) => {
 // counts as easy).
 // How many times a rejected reply is sent back to the model with its list of
 // problems before the request gives up.
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 3;
 
 export const generateCluesForScene = async (lessonText, scene, logLabel, difficulty = "easy") => {
   const { slotTypes, error } = await getPublishedSlotTypes(scene);
@@ -567,6 +602,222 @@ export const generateCluesForScene = async (lessonText, scene, logLabel, difficu
     result = { clues: kept };
 
     return { clues: result.clues, slotTypes, provider, difficulty: level };
+  } catch (err) {
+    return { error: "ai_failed", message: err.message };
+  }
+};
+
+// ── Additional notes (standalone hints) ────────────────────────────────
+//
+// Each vault's template says how many additional notes a campaign needs
+// (VaultTemplate.standaloneNoteCount). They are short facts from the same
+// document that belong to NO question: they are shown with the hints in the
+// game, so a player cannot tell which hint belongs to which answer. For that
+// reason a note is written in the same style and length as a hint of the
+// chosen difficulty, takes its fact from a part of the document that no
+// question uses, and never contains an answer or a wrong option of any
+// question (parseNoteResponse checks this).
+
+// The number of additional notes a scene's published template asks for (0 when
+// the vault has no published template).
+export const getStandaloneNoteCount = async (scene) => {
+  const template = await prisma.vaultTemplate.findUnique({
+    where: { scene: (scene || "").toLowerCase().trim() },
+    select: { isPublished: true, standaloneNoteCount: true },
+  });
+  return template?.isPublished ? template.standaloneNoteCount : 0;
+};
+
+// A note may not repeat this many words in a row from a question, a hint or
+// another note.
+const NOTE_COPY_RUN = 6;
+const NOTE_FORBIDDEN_WORDS = /\b(question|questions|player|players|clue|clues|hint|hints)\b/i;
+
+// `avoid` = { texts: [the questions and hints already written], phrases: [every
+// answer and wrong option of those questions] }.
+export const buildNotePrompt = (extractedText, count, avoid, difficulty = "easy") => {
+  const level = DIFFICULTY_SETTINGS[normalizeDifficulty(difficulty)];
+  const shape = level.intro
+    ? `Each note is one or two plain sentences with at most ${level.hintAim} words, in simple everyday words, in the same style and length as a short textbook explanation. Keep most of the words from the document and change only a few of them.`
+    : `Each note is ONE plain sentence of at most ${level.hintAim} words (a second short sentence is allowed), in the document's own wording.`;
+
+  const used = [
+    ...avoid.texts.map((x) => `- ${x}`),
+    ...(avoid.phrases.length ? [`- Answers and wrong options (never write these in a note): ${avoid.phrases.join("; ")}`] : []),
+  ];
+
+  return `You are writing short extra notes for a classroom activity. The document below is your ONLY source.
+
+Rules:
+- Every note must be a fact that the document states. Do not use outside knowledge, and do not add facts, definitions, examples or explanations that the document does not contain.
+- A note gives additional learning: an interesting or useful fact from the document. It must have NO connection to the facts already used below: it must not repeat, rephrase or point to any of them, and it must not contain any answer or wrong option listed there. Choose a different fact, from a part of the document that those facts do not use.
+- Each note is a plain statement of a fact, never a question. ${shape}
+- Each note is about a different part of the document. Do not write two notes about the same fact.
+- Never write the words "question", "player", "clue" or "hint" in a note, and do not mention a game.
+
+Facts already used:
+${used.length ? used.join("\n") : "- (none)"}
+
+How your answer is checked: a program checks every note, and a note that fails is sent back to you with the reason.
+- A note is a statement, not a question, with ${MIN_HINT_WORDS} to ${level.hintMax} words.
+- Document check: the program takes every meaningful word of the note (words of four or more letters, and numbers) and looks it up in the document, ignoring only plural and tense endings. At least ${Math.round(level.sourceMatch * 100)} out of every 100 of those words must be found in the document. A word the document never uses counts as missing, even when it is a correct synonym, so use the document's own words.
+- Connection check: the note fails if it contains any answer or wrong option listed above, or if ${NOTE_COPY_RUN} or more words in a row are the same as a fact listed above or as another note.
+Before you answer, check each note yourself against these points.
+
+Return ONLY a valid JSON array (no markdown, no code fences, no commentary) of exactly ${count} strings, one string per note.
+
+Document:
+"""
+${extractedText}
+"""`;
+};
+
+// Returns { notes } when every note passes, otherwise { problems, slots } (like
+// parseClueResponse: `slots` holds the accepted note of each position, null for
+// the others). `kept` = notes accepted in earlier tries, used to reject a
+// repeated fact.
+export const parseNoteResponse = (rawText, count, sourceText, avoid, difficulty = "easy", kept = []) => {
+  const level = DIFFICULTY_SETTINGS[normalizeDifficulty(difficulty)];
+  let parsed;
+  try {
+    parsed = JSON.parse(cleanJson(rawText));
+  } catch {
+    return {
+      invalidJson: true,
+      problems: [
+        !String(rawText).trim()
+          ? "The response was empty. Return the JSON array."
+          : "The response was not valid JSON. Return only the JSON array of strings, and put every double quote inside a text as \\\" or leave it out.",
+      ],
+    };
+  }
+
+  if (!Array.isArray(parsed) || parsed.length !== count) {
+    return { problems: [`The response must be a JSON array of exactly ${count} strings.`] };
+  }
+
+  const source = prepareSource(sourceText);
+  const slots = new Array(count).fill(null);
+  const problems = [];
+  const accepted = kept.filter(Boolean);
+
+  for (let i = 0; i < count; i++) {
+    const label = `Note ${i + 1}`;
+
+    // A note accepted in an earlier try stays as it is, whatever this reply says.
+    if (kept[i]) {
+      slots[i] = kept[i];
+      continue;
+    }
+
+    const item = parsed[i];
+    const note = typeof item === "string" ? item.trim() : isFilled(item?.note) ? item.note.trim() : "";
+
+    if (!note) {
+      problems.push(`${label}: the text is missing.`);
+      continue;
+    }
+    if (note.includes("?")) {
+      problems.push(`${label}: a note is a statement of a fact, not a question.`);
+      continue;
+    }
+    const words = countWords(note);
+    if (words < MIN_HINT_WORDS || words > level.hintMax) {
+      problems.push(`${label}: it has ${words} words; a note needs ${MIN_HINT_WORDS} to ${level.hintAim} words.`);
+      continue;
+    }
+    if (NOTE_FORBIDDEN_WORDS.test(note)) {
+      problems.push(`${label}: do not use the words "question", "player", "clue" or "hint" in a note.`);
+      continue;
+    }
+
+    const textTalk = aboutTheText(note, source);
+    if (textTalk.length > 0) {
+      problems.push(`${label}: it talks about the text itself (${textTalk.map((w) => `"${w}"`).join(", ")}). State a fact about the subject instead.`);
+      continue;
+    }
+
+    const plainNote = plain(note);
+    const clash = avoid.phrases.find((ph) => hasPhrase(plainNote, ph));
+    if (clash) {
+      problems.push(`${label}: it contains "${clash}", which is an answer or wrong option of a question. Write about a different fact.`);
+      continue;
+    }
+    if (avoid.texts.some((x) => copiesQuestionRun(plainNote, x, NOTE_COPY_RUN))) {
+      problems.push(`${label}: it repeats words of a fact that is already used. Write about a different fact.`);
+      continue;
+    }
+    if (accepted.some((x) => plain(x) === plainNote || copiesQuestionRun(plainNote, x, NOTE_COPY_RUN))) {
+      problems.push(`${label}: it repeats another note. Write about a different fact.`);
+      continue;
+    }
+    if (source) {
+      const check = checkHintSource(note, source, level.sourceMatch);
+      if (!check.ok) {
+        problems.push(`${label}: it uses words the document does not contain${check.missing.length ? ` (${check.missing.slice(0, 6).join(", ")})` : ""}. Use only the document's own facts and words.`);
+        continue;
+      }
+    }
+
+    slots[i] = note;
+    accepted.push(note);
+  }
+
+  return problems.length ? { problems, slots } : { notes: slots, slots };
+};
+
+// Drafts `count` additional notes from lesson text, retrying (up to MAX_RETRIES
+// times) with the list of problems, and keeping the notes that already passed
+// - the same way generateCluesForScene does. Returns { notes, provider,
+// difficulty } or { error: "ai_failed" | "malformed", message }.
+export const generateStandaloneNotes = async (lessonText, count, avoid, logLabel, difficulty = "easy") => {
+  if (!count) return { notes: [], difficulty: normalizeDifficulty(difficulty) };
+
+  const level = normalizeDifficulty(difficulty);
+  const prompt = buildNotePrompt(lessonText, count, avoid, level);
+
+  try {
+    const { text: rawText, provider } = await generateText(prompt);
+    console.log(`[clueTemplates] ${logLabel} notes (${level}) answered via ${provider}`);
+
+    const kept = new Array(count).fill(null);
+    let result = parseNoteResponse(rawText, count, lessonText, avoid, level, kept);
+    let lastRaw = rawText;
+    const keepAccepted = (r) => (r.slots || []).forEach((n, i) => { if (n && !kept[i]) kept[i] = n; });
+    keepAccepted(result);
+
+    for (let retry = 1; kept.some((n) => !n) && retry <= MAX_RETRIES; retry++) {
+      const open = result.problems.filter((p) => {
+        const m = p.match(/^Note (\d+):/);
+        return !m || !kept[Number(m[1]) - 1];
+      });
+      console.warn(`[clueTemplates] ${logLabel} notes answer ${retry} rejected: ${open.join(" | ")}`);
+
+      const acceptedList = kept.map((n, i) => (n ? `${i + 1}. ${n}` : null)).filter(Boolean);
+      const acceptedNote = acceptedList.length
+        ? `\n\nThese notes were already accepted and are kept as they are (write them again in their place, and make the other notes about different facts):\n${acceptedList.join("\n")}`
+        : "";
+      const correctivePrompt = `${prompt}\n\nYour previous response had these problems:\n${open.map((p) => `- ${p}`).join("\n")}${acceptedNote}\n\nRespond again with ONLY a valid JSON array (no markdown, no commentary) of exactly ${count} strings that fixes every problem and follows all the rules above.`;
+      const { text: retryText } = await generateText(correctivePrompt);
+      lastRaw = retryText;
+      result = parseNoteResponse(retryText, count, lessonText, avoid, level, kept);
+      keepAccepted(result);
+    }
+
+    if (kept.some((n) => !n)) {
+      const open = (result.problems || []).filter((p) => {
+        const m = p.match(/^Note (\d+):/);
+        return !m || !kept[Number(m[1]) - 1];
+      });
+      console.warn(`[clueTemplates] ${logLabel} notes final answer rejected: ${open.join(" | ")}`);
+      if (result.invalidJson) console.warn(`[clueTemplates] ${logLabel} notes raw reply (${lastRaw.length} chars) starts: ${JSON.stringify(lastRaw.slice(0, 200))}`);
+      return {
+        error: "malformed",
+        message: `The AI's notes did not meet the rules after ${MAX_RETRIES} retries: ${open.slice(0, 3).join(" ")}`,
+      };
+    }
+
+    return { notes: kept, provider, difficulty: level };
   } catch (err) {
     return { error: "ai_failed", message: err.message };
   }

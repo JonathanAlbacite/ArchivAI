@@ -10,6 +10,8 @@ const router = express.Router();
 // from a campaign's own scene value with no case juggling.
 export const VALID_SCENES = ["laboratory", "library", "tomb"];
 const VALID_TYPES = ["NORMAL", "MULTICHOICE", "COMBO"];
+// Most additional notes (standalone hints) a vault can ask for.
+export const MAX_STANDALONE_NOTES = 10;
 
 const normalizeScene = (scene) => VALID_SCENES.find((s) => s === (scene || "").toLowerCase().trim()) || null;
 
@@ -24,7 +26,9 @@ router.get("/admin/vault-templates", protect, adminOnly, async (req, res) => {
     const byScene = Object.fromEntries(templates.map((t) => [t.scene, t]));
 
     res.json(
-      VALID_SCENES.map((scene) => byScene[scene] || { id: null, scene, isPublished: false, slots: [] })
+      VALID_SCENES.map(
+        (scene) => byScene[scene] || { id: null, scene, isPublished: false, standaloneNoteCount: 0, slots: [] }
+      )
     );
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
@@ -42,23 +46,30 @@ router.get("/admin/vault-templates/:scene", protect, adminOnly, async (req, res)
       where: { scene },
       include: { slots: { orderBy: { orderNumber: "asc" } } },
     });
-    res.json(template || { id: null, scene, isPublished: false, slots: [] });
+    res.json(template || { id: null, scene, isPublished: false, standaloneNoteCount: 0, slots: [] });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
-// Admin: replace a vault's whole slot list (creates the template row the
-// first time). Only while still a draft - once published a template is
+// Admin: replace a vault's whole slot list and set how many additional notes
+// its campaigns need (creates the template row the first time). Only while still a draft - once published a template is
 // locked, same one-way idea as Campaign.isPublished elsewhere; unpublish
 // first (see below) to make more changes.
 router.put("/admin/vault-templates/:scene", protect, adminOnly, async (req, res) => {
   const scene = normalizeScene(req.params.scene);
   if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
 
-  const { slots } = req.body;
+  const { slots, standaloneNoteCount } = req.body;
   if (!Array.isArray(slots) || slots.length === 0)
     return res.status(400).json({ message: "slots must be a non-empty array" });
+  if (
+    standaloneNoteCount !== undefined &&
+    (!Number.isInteger(standaloneNoteCount) || standaloneNoteCount < 0 || standaloneNoteCount > MAX_STANDALONE_NOTES)
+  )
+    return res
+      .status(400)
+      .json({ message: `standaloneNoteCount must be a whole number from 0 to ${MAX_STANDALONE_NOTES}` });
   if (slots.some((s) => !s || !VALID_TYPES.includes(s.type)))
     return res.status(400).json({ message: `Each slot's type must be one of ${VALID_TYPES.join(", ")}` });
 
@@ -69,8 +80,8 @@ router.put("/admin/vault-templates/:scene", protect, adminOnly, async (req, res)
 
     const template = await prisma.vaultTemplate.upsert({
       where: { scene },
-      update: {},
-      create: { scene },
+      update: standaloneNoteCount !== undefined ? { standaloneNoteCount } : {},
+      create: { scene, standaloneNoteCount: standaloneNoteCount ?? 0 },
     });
 
     // Simplest correct way to apply a reordered/resized slot list: drop

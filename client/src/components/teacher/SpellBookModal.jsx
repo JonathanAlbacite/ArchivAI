@@ -486,7 +486,7 @@ function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
 // are awaiting review. Approving/rejecting/editing here persists straight
 // to the GeneratedClue rows; only approved ones get inserted into this
 // vault's empty pages of the same type (see insertApprovedClues).
-function GeneratedCluesReview({ clues, onSaveEdit, onApprove, onReject, onInsert, onCancel }) {
+function GeneratedCluesReview({ clues, notes, notesError, onSaveEdit, onApprove, onReject, onInsert, onCancel }) {
   const approvedCount = clues.filter((c) => c.status === "approved").length;
 
   return (
@@ -504,6 +504,30 @@ function GeneratedCluesReview({ clues, onSaveEdit, onApprove, onReject, onInsert
           <GeneratedClueCard key={c.id} clue={c} onSaveEdit={onSaveEdit} onApprove={onApprove} onReject={onReject} />
         ))}
       </div>
+
+      {(notes.length > 0 || notesError) && (
+        <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: `1px dashed ${colors.parchmentLine}` }}>
+          <p style={{ fontFamily: fonts.flourish, fontSize: "13px", color: colors.ember, letterSpacing: "1px", margin: "0 0 6px 0" }}>
+            Additional Notes
+          </p>
+          {notesError ? (
+            <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.danger, margin: 0 }}>
+              The additional notes could not be written ({notesError}). You can type them on the last page.
+            </p>
+          ) : (
+            <>
+              <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 8px 0" }}>
+                These facts belong to no question. They are added to the last page when you add the clues, where you can still edit them.
+              </p>
+              <ol style={{ margin: 0, paddingLeft: "18px", fontFamily: fonts.body, fontSize: "12px", color: colors.ink, lineHeight: 1.5 }}>
+                {notes.map((n, i) => (
+                  <li key={i} style={{ marginBottom: "4px" }}>{n}</li>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
         <button
@@ -563,6 +587,13 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       answers: (c.answers || []).map((a) => ({ text: a.text, isCorrect: a.isCorrect })),
     })) || []
   );
+  // Additional notes (standalone hints): facts from the lesson that belong to
+  // no question. How many comes from the vault's template (noteCount); they sit
+  // on one extra page after the last clue and are saved with the campaign.
+  const [noteCount, setNoteCount] = useState(campaign?.standaloneNotes?.length || 0);
+  const [notes, setNotes] = useState(campaign?.standaloneNotes || []);
+  const noteCountRef = useRef(noteCount);
+  noteCountRef.current = noteCount;
   // idle (no scene picked yet) -> loading -> ready (pages match a
   // published template) | none (no published template for this scene).
   // Editing an existing campaign starts "ready" since its pages already
@@ -586,6 +617,10 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   const [lessonStep, setLessonStep] = useState("idle");
   const [lessonError, setLessonError] = useState("");
   const [generatedClues, setGeneratedClues] = useState([]);
+  // The additional notes written together with the generated clues (put on the
+  // notes page when the approved clues are added), or why they could not be written.
+  const [generatedNotes, setGeneratedNotes] = useState([]);
+  const [notesError, setNotesError] = useState("");
   const fileInputRef = useRef(null);
   const reviewing = lessonStep === "review";
   // The uploaded lesson the chat is asking a difficulty for, and the vault
@@ -628,8 +663,29 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     if (existingAttachment) setRemoveAttachment(true);
   };
 
-  const lastIndex = pages.length;
+  // Cover page, one page per clue, then (when the vault asks for any) the
+  // additional notes page.
+  const lastIndex = pages.length + (noteCount > 0 ? 1 : 0);
   const atFrontier = activeIndex === lastIndex;
+
+  // An existing campaign opens with its saved pages; only the vault's current
+  // note count has to be fetched, so the notes page matches the template.
+  useEffect(() => {
+    if (!isEditing || !campaign?.scene) return;
+    const token = localStorage.getItem("token");
+    fetch(`${import.meta.env.VITE_API_URL}/api/vault-templates/${campaign.scene}/published`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        const count = data.standaloneNoteCount || 0;
+        setNoteCount(count);
+        setNotes((existing) => Array.from({ length: count }, (_, i) => existing[i] || ""));
+      })
+      .catch((err) => console.error(err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Loads the published template for a scene and resets `pages` to match
   // it exactly - one blank page per slot, in order, each locked to that
@@ -638,6 +694,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   const loadTemplate = async (nextScene) => {
     setTemplateStatus("loading");
     setPages([]);
+    setNoteCount(0);
+    setNotes([]);
     setActiveIndex(0);
 
     const token = localStorage.getItem("token");
@@ -658,6 +716,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       }
 
       setPages(data.slots.map((s) => emptyClueForType(s.type)));
+      setNoteCount(data.standaloneNoteCount || 0);
+      setNotes(Array.from({ length: data.standaloneNoteCount || 0 }, () => ""));
       setTemplateStatus("ready");
     } catch (err) {
       console.error(err);
@@ -670,7 +730,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   // first since it discards whatever's been filled in so far.
   const handleSceneChange = (nextScene) => {
     if (nextScene === scene || flipping || closing || reviewing) return;
-    const hasContent = pages.some((p) => p.question.trim() || p.answers.some((a) => a.text.trim()));
+    const hasContent =
+      pages.some((p) => p.question.trim() || p.answers.some((a) => a.text.trim())) || notes.some((n) => n.trim());
     if (hasContent && !window.confirm("Switching vaults resets the clue pages to match the new vault's question set. Continue?")) {
       return;
     }
@@ -698,6 +759,10 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   const updateClue = (field, value) => {
     const clueIndex = activeIndex - 1;
     setPages(pages.map((p, i) => (i === clueIndex ? { ...p, [field]: value } : p)));
+  };
+
+  const updateNote = (index, value) => {
+    setNotes(notes.map((n, i) => (i === index ? value : n)));
   };
 
   const updateAnswerField = (answerIndex, field, value) => {
@@ -795,6 +860,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   const generateClues = async (lessonModuleId, difficulty) => {
     const token = localStorage.getItem("token");
     setLessonError("");
+    setNotesError("");
+    setGeneratedNotes([]);
     setLessonStep("generating");
 
     try {
@@ -805,6 +872,24 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       });
       const genData = await genRes.json();
       if (!genRes.ok) throw new Error(genData.message || "Clue generation failed");
+
+      // The vault's additional notes are written from the same lesson, about facts
+      // that none of these clues use. If they cannot be written, the clues are
+      // still reviewed and the notes can be typed on the notes page.
+      if (noteCountRef.current > 0) {
+        try {
+          const notesRes = await fetch(`${import.meta.env.VITE_API_URL}/api/lesson-modules/${lessonModuleId}/generate-notes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ scene: sceneRef.current, difficulty, clueIds: genData.map((c) => c.id) }),
+          });
+          const notesData = await notesRes.json();
+          if (!notesRes.ok) throw new Error(notesData.message || "Additional notes generation failed");
+          setGeneratedNotes(notesData.notes || []);
+        } catch (notesErr) {
+          setNotesError(notesErr.message);
+        }
+      }
 
       setGeneratedClues(genData);
       setLessonStep("review");
@@ -890,17 +975,31 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
 
     setPages(nextPages);
 
+    // The written additional notes go into the blank note fields, in order.
+    if (generatedNotes.length > 0) {
+      const nextNotes = [...notes];
+      let at = 0;
+      for (let i = 0; i < nextNotes.length && at < generatedNotes.length; i++) {
+        if (!nextNotes[i].trim()) nextNotes[i] = generatedNotes[at++];
+      }
+      setNotes(nextNotes);
+    }
+
     if (used < approved.length) {
       alert(`Only ${used} of ${approved.length} approved clue(s) fit into this vault's empty pages - the rest weren't added.`);
     }
 
     setLessonStep("idle");
     setGeneratedClues([]);
+    setGeneratedNotes([]);
+    setNotesError("");
   };
 
   const cancelReview = () => {
     setLessonStep("idle");
     setGeneratedClues([]);
+    setGeneratedNotes([]);
+    setNotesError("");
   };
 
   // Every page is required - the vault's template is a fixed contract, not
@@ -916,6 +1015,10 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     }
     return -1;
   };
+
+  // The 0-based index of the first blank additional note, or -1 when every one
+  // is filled in (or the vault has none).
+  const findBlankNote = () => (noteCount > 0 ? notes.findIndex((n) => !n.trim()) : -1);
 
   // Runs the create/update -> clues -> publish sequence. Editing PATCHes the
   // existing campaign's metadata and PUTs the whole clue set (replacing it);
@@ -949,7 +1052,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       const cluesRes = await fetch(`${import.meta.env.VITE_API_URL}/api/campaigns/${finalCampaignId}/clues`, {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ clues }),
+        body: JSON.stringify({ clues, standaloneNotes: noteCount > 0 ? notes : [] }),
       });
       const cluesData = await cluesRes.json();
       if (!cluesRes.ok) {
@@ -1029,6 +1132,12 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       alert(`Clue ${incomplete + 1} is incomplete - fill in its question and every answer before sealing the book.`);
       return;
     }
+    const blankNote = findBlankNote();
+    if (blankNote !== -1) {
+      setActiveIndex(pages.length + 1);
+      alert(`Additional note ${blankNote + 1} is empty - fill in every additional note before sealing the book.`);
+      return;
+    }
     setClosing(true);
     const ok = await seal();
     if (!ok) {
@@ -1049,7 +1158,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     transformOrigin: "left center",
   };
 
-  const isCluePage = activeIndex > 0;
+  const isNotesPage = noteCount > 0 && activeIndex === pages.length + 1;
+  const isCluePage = activeIndex > 0 && !isNotesPage;
   const currentClue = isCluePage ? pages[activeIndex - 1] : null;
 
   return (
@@ -1148,7 +1258,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                   <p style={{ fontFamily: fonts.flourish, fontSize: "11px", color: colors.inkMuted, letterSpacing: "2px", margin: "0 0 10px 0" }}>
                     {isEditing ? "EDITING CAMPAIGN" : "NEW CAMPAIGN"}
                   </p>
-                  <IllustrationFrame scene={scene} label={isCluePage ? "Clue Preview" : "Scene Preview"} showIcon={!isCluePage} />
+                  <IllustrationFrame scene={scene} label={isNotesPage ? "Additional Notes" : isCluePage ? "Clue Preview" : "Scene Preview"} showIcon={activeIndex === 0} />
                   <h2 style={{ fontFamily: fonts.displayDecorative, fontSize: "20px", color: colors.ink, margin: "14px 0 0 0" }}>
                     {title || "Untitled Campaign"}
                   </h2>
@@ -1185,13 +1295,40 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                   {reviewing ? (
                     <GeneratedCluesReview
                       clues={generatedClues}
+                      notes={generatedNotes}
+                      notesError={notesError}
                       onSaveEdit={saveClueEdit}
                       onApprove={(id) => setClueStatus(id, "approve")}
                       onReject={(id) => setClueStatus(id, "reject")}
                       onInsert={insertApprovedClues}
                       onCancel={cancelReview}
                     />
-                  ) : !isCluePage ? (
+                  ) : isNotesPage ? (
+                    <div>
+                      <p style={{ fontFamily: fonts.flourish, fontSize: "14px", color: colors.ember, letterSpacing: "1px", margin: "0 0 16px 0" }}>
+                        Additional Notes
+                      </p>
+                      <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 14px 0", fontStyle: "italic" }}>
+                        {noteCount} note{noteCount === 1 ? "" : "s"} set by this vault's template. Each is a short fact from the lesson that
+                        belongs to no question. They are mixed in with the hints, so players cannot tell which hint goes with which answer.
+                      </p>
+
+                      {notes.map((n, i) => (
+                        <div key={i} style={{ marginBottom: i < notes.length - 1 ? "14px" : 0 }}>
+                          <label style={labelStyle}>Note {i + 1}</label>
+                          <textarea
+                            rows={3}
+                            value={n}
+                            onChange={(e) => updateNote(i, e.target.value)}
+                            onFocus={() => setFocusedField(`extra${i}`)}
+                            onBlur={() => setFocusedField(null)}
+                            placeholder="A short fact from the lesson that is not the answer to any question"
+                            style={fieldStyle(`extra${i}`)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : activeIndex === 0 ? (
                     <div>
                       <h2 style={{ fontFamily: fonts.displayDecorative, fontSize: "22px", color: colors.ink, margin: "0 0 18px 0" }}>
                         {isEditing ? "Edit Campaign" : "Create Campaign"}
@@ -1364,7 +1501,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                     <div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                         <p style={{ fontFamily: fonts.flourish, fontSize: "14px", color: colors.ember, letterSpacing: "1px", margin: 0 }}>
-                          Clue {activeIndex} of {lastIndex}
+                          Clue {activeIndex} of {pages.length}
                         </p>
                         <span style={{ fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: colors.inkMuted, textTransform: "uppercase", letterSpacing: "0.5px" }}>
                           {currentClue.type}

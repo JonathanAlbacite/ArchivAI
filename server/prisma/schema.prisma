@@ -75,6 +75,9 @@ model Campaign {
 
   room     Room              @relation("RoomCampaigns", fields: [roomId], references: [id], onDelete: Cascade)
   clues    Clue[]
+  // Additional notes: trivia from the lesson that belong to no question
+  // (see StandaloneNote below).
+  standaloneNotes StandaloneNote[]
   sessions CampaignSession[]
   progress CampaignProgress[]
 
@@ -117,6 +120,20 @@ model Clue {
   attempts SessionAttempt[]
 }
 
+// An additional note: a short fact from the lesson that belongs to no
+// question and no answer. It is shown on the last page of the campaign
+// editor and sent to the game as a Standalone Note (the game reads them by
+// position: orderNumber 1 is text000). How many a campaign has is set by its
+// vault's template (VaultTemplate.standaloneNoteCount).
+model StandaloneNote {
+  id          Int    @id @default(autoincrement())
+  campaignId  Int
+  orderNumber Int
+  text        String @db.Text
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
 // One answer OPTION for a Clue - correct or decoy. A flat, ordered list
 // per Clue rather than a single string column, so NORMAL/MULTICHOICE/
 // COMBO can all share the same shape: NORMAL has exactly one row
@@ -145,6 +162,9 @@ model VaultTemplate {
   id          Int      @id @default(autoincrement())
   scene       String   @unique
   isPublished Boolean  @default(false)
+  // How many additional notes (standalone hints) a campaign in this vault
+  // must have. Set by the admin; 0 means the vault has none.
+  standaloneNoteCount Int @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
