@@ -8,12 +8,15 @@ import PortalTransition from '../../components/PortalTransition'
 import UnityGame from '../../components/UnityGame'
 import { SceneBadge, SceneIcon } from '../../components/SceneIcon'
 import { getSceneMeta } from '../../scenes'
+import ActiveBadge from '../../components/ActiveBadge'
+import useRoomMembers from '../../lib/useRoomMembers'
 import { colors, fonts } from '../../theme'
 import AttachmentPreviewModal from '../../components/AttachmentPreviewModal'
 
 function StudentRoomPage() {
     const { id } = useParams()
     const [room, setRoom] = useState(null)
+    const members = useRoomMembers(id)
     const [portalActive, setPortalActive] = useState(false)
     const [gameLoading, setGameLoading] = useState(false)
     const [activeCampaign, setActiveCampaign] = useState(null)
@@ -131,7 +134,35 @@ function StudentRoomPage() {
                             <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.inkMuted, margin: 0 }}>{room?.description}</p>
                         </div>
 
-                        {/* Campaigns section */}
+                        {/* Two sections side by side */}
+                        <div style={{ display: "flex", gap: "24px", alignItems: "flex-start" }}>
+
+                            {/* Members section: the room owner first, then the students */}
+                            <div style={{ flex: 1, minWidth: 0, backgroundColor: "rgba(255,255,255,0.35)", borderRadius: "24px", padding: "24px", border: `1px solid ${colors.magicViolet}55` }}>
+                            <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.magicViolet }}>
+                                IN THIS ROOM
+                            </p>
+                            <h2 style={{ fontFamily: fonts.display, color: colors.ink, margin: "0 0 16px 0" }}>Members</h2>
+
+                            {!members ? (
+                                <p style={{ fontFamily: fonts.body, color: colors.inkMuted }}>Loading members...</p>
+                            ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                    {[{ ...members.owner, isOwner: true }, ...members.students].map((m) => (
+                                        <div key={`${m.isOwner ? "owner" : "student"}-${m.id}`} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px", backgroundColor: colors.parchmentPanel, border: `1px solid ${colors.parchmentLine}`, borderRadius: "14px" }}>
+                                            <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.ink, margin: 0 }}>{m.name}</p>
+                                            {m.isOwner && (
+                                                <span style={{ fontFamily: fonts.body, fontSize: "10px", fontWeight: "600", color: colors.magicViolet, border: `1px solid ${colors.magicViolet}88`, borderRadius: "10px", padding: "1px 8px" }}>Owner</span>
+                                            )}
+                                            <ActiveBadge active={m.active} />
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            </div>
+
+                            {/* Campaigns section */}
+                            <div style={{ flex: 1, minWidth: 0, backgroundColor: "rgba(255,255,255,0.35)", borderRadius: "24px", padding: "24px", border: `1px solid ${colors.magicViolet}55` }}>
                         <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.magicViolet }}>
                             AWAITING RIDDLES
                         </p>
@@ -146,7 +177,7 @@ function StudentRoomPage() {
                         {room?.campaigns?.length === 0 ? (
                             <p style={{ fontFamily: fonts.body, color: colors.inkMuted }}>No campaigns available yet.</p>
                         ) : (
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "24px" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px" }}>
                                 {room?.campaigns?.map((campaign) => (
                                     <div key={campaign.id} style={{ backgroundColor: colors.parchmentPanel, borderRadius: "24px", border: `1px solid ${colors.parchmentLine}`, padding: "24px", display: "flex", flexDirection: "column", justifyContent: "space-between", boxShadow: "0 10px 30px rgba(0,0,0,0.12)" }}>
                                         <div>
@@ -178,6 +209,9 @@ function StudentRoomPage() {
                                 ))}
                             </div>
                         )}
+                            </div>
+
+                        </div>
 
                     </div>
                 </div>

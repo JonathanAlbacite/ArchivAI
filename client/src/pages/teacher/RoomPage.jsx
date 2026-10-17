@@ -10,12 +10,16 @@ import SpellBookModal from '../../components/teacher/SpellBookModal'
 import CampaignBookViewer from '../../components/teacher/CampaignBookViewer'
 import { SceneBadge } from '../../components/SceneIcon'
 import { getSceneMeta } from '../../scenes'
+import ActiveBadge from '../../components/ActiveBadge'
+import useRoomMembers from '../../lib/useRoomMembers'
 import { colors, fonts } from '../../theme'
 
 function RoomPage() {
 
     const {id} = useParams()
     const [room, setRoom] = useState(null)
+    const members = useRoomMembers(id)
+    const activeStudentIds = new Set((members?.students || []).filter((m) => m.active).map((m) => m.id))
     const [showAddStudent, setShowAddStudent] = useState(false)
     const [studentEmail, setStudentEmail] = useState("")
     const [showCreateCampaign, setShowCreateCampaign] = useState(false)
@@ -429,7 +433,10 @@ function RoomPage() {
                                     room?.students?.map((s) => (
                                         <div key={s.student.id} style={{ display: "flex", padding: "10px 0", borderBottom: `1px solid ${colors.vaultBorder}`, justifyContent: "space-between", alignItems: "center" }}>
                                             <div>
-                                                <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.brassBright, margin: 0 }}>{s.student.name}</p>
+                                                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                                    <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.brassBright, margin: 0 }}>{s.student.name}</p>
+                                                    <ActiveBadge active={activeStudentIds.has(s.student.id)} />
+                                                </div>
                                                 <p style={{ fontFamily: fonts.body, fontSize: "12px", color: "#B9AC96", margin: 0 }}>{s.student.email}</p>
                                             </div>
                                             <button onClick={() => handleRemoveStudent(s.student.id)} style={{ background: "none", border: "none", color: colors.inkMuted, cursor: "pointer", display: "flex" }}>

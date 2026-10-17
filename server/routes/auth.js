@@ -2,6 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import prisma from "../lib/prisma.js";
+import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -42,7 +43,20 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    await prisma.user.update({ where: { id: user.id }, data: { lastActiveAt: new Date() } });
+
     res.json({ token, role: user.role, name: user.name });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Heartbeat: the website calls this every 30 seconds while a page is open and visible, so the
+// room's member list can show who is active right now (see GET /rooms/:id/members).
+router.post("/heartbeat", protect, async (req, res) => {
+  try {
+    await prisma.user.updateMany({ where: { id: req.user.id }, data: { lastActiveAt: new Date() } });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

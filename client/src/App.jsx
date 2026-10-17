@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Outlet } from "react-router-dom";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -25,7 +26,32 @@ function TeacherLayout() {
   );
 }
 
+// Tells the server this user is here, every 30 seconds while a page is open and visible, so room
+// members can see who is active (see GET /api/rooms/:id/members). Nothing is sent when signed out.
+function usePresence() {
+  useEffect(() => {
+    const beat = () => {
+      const token = localStorage.getItem("token");
+      if (!token || document.visibilityState !== "visible") return;
+      fetch(`${import.meta.env.VITE_API_URL}/api/auth/heartbeat`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    };
+    beat();
+    const timer = setInterval(beat, 30000);
+    document.addEventListener("visibilitychange", beat);
+    window.addEventListener("focus", beat);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", beat);
+      window.removeEventListener("focus", beat);
+    };
+  }, []);
+}
+
 function App() {
+  usePresence();
   return (
     <BrowserRouter>
       <Routes>

@@ -11,6 +11,12 @@ const router = express.Router();
 // same as a real teacher's would be, so this never leaks another teacher's rooms to them.
 const actsAsTeacher = (role) => role === "TEACHER" || role === "ADMIN";
 
+// A member is "active" when the website has reported them within this window. The website sends
+// a heartbeat every 30 seconds (see POST /auth/heartbeat), so 75 seconds allows two missed beats
+// before someone drops to inactive.
+const ACTIVE_WINDOW_MS = 75 * 1000;
+const isActive = (lastActiveAt) => !!lastActiveAt && Date.now() - new Date(lastActiveAt).getTime() < ACTIVE_WINDOW_MS;
+
 // Teacher: Create room
 router.post("/", protect, teacherOnly, async (req, res) => {
   const { name, description } = req.body;
@@ -108,6 +114,46 @@ router.get("/:id", protect, async (req, res) => {
     }
 
     res.json(room);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher or enrolled Student: Get the room's members - its owner (the teacher) first, then the
+// students - each with whether they are active right now
+router.get("/:id/members", protect, async (req, res) => {
+  try {
+    const room = await prisma.room.findUnique({
+      where: { id: parseInt(req.params.id) },
+      include: {
+        teacher: { select: { id: true, name: true, lastActiveAt: true } },
+        students: {
+          orderBy: { joinedAt: "asc" },
+          include: { student: { select: { id: true, name: true, lastActiveAt: true } } },
+        },
+      },
+    });
+
+    if (!room) return res.status(404).json({ message: "Room not found" });
+
+    if (actsAsTeacher(req.user.role)) {
+      if (room.teacherId !== req.user.id)
+        return res.status(403).json({ message: "Access denied" });
+    } else if (req.user.role === "STUDENT") {
+      const enrolled = room.students.some((s) => s.studentId === req.user.id);
+      if (!enrolled) return res.status(403).json({ message: "Access denied" });
+    } else {
+      return res.status(403).json({ message: "Access denied" });
+    }
+
+    res.json({
+      owner: { id: room.teacher.id, name: room.teacher.name, active: isActive(room.teacher.lastActiveAt) },
+      students: room.students.map((s) => ({
+        id: s.student.id,
+        name: s.student.name,
+        active: isActive(s.student.lastActiveAt),
+      })),
+    });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

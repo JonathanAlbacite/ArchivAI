@@ -15,6 +15,11 @@ model User {
   role      String   // "TEACHER", "STUDENT", or "ADMIN"
   createdAt DateTime @default(now())
 
+  // Last time the website reported this user as present (login, then a short
+  // heartbeat while a page is open). A member counts as "active" when this is
+  // recent - see the room members list in routes/rooms.js.
+  lastActiveAt DateTime?
+
   taughtRooms       Room[]             @relation("TeacherRooms")
   enrolledRooms     RoomStudent[]
   sessions          CampaignSession[]

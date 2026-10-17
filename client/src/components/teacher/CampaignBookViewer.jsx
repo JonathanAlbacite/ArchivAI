@@ -118,12 +118,12 @@ function CampaignBookViewer({ campaignId, onClose }) {
       ))}
     </div>
   ) : clues.length === 0 ? (
-    <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted }}>No clues added to this campaign yet.</p>
+    <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted }}>No entries added to this campaign yet.</p>
   ) : (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0 0 16px 0" }}>
         <p style={{ fontFamily: fonts.flourish, fontSize: "13px", color: colors.ember, letterSpacing: "1px", margin: 0 }}>
-          Clue {currentClue.orderNumber}
+          Entry {currentClue.orderNumber}
         </p>
         <span style={{ fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: colors.inkMuted, textTransform: "uppercase", letterSpacing: "0.5px" }}>
           {CLUE_TYPE_LABELS[currentClue.type] || currentClue.type}

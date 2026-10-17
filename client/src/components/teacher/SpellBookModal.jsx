@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Trash2, Lock, Sparkles, Check, X, Paperclip, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Sparkles, Check, X, Paperclip, FileText } from "lucide-react";
 import EmberField from "../EmberField";
 import { colors, fonts } from "../../theme";
 import { SCENE_LIST, getSceneMeta } from "../../scenes";
@@ -13,7 +13,7 @@ import { SceneBadge } from "../SceneIcon";
 // each page's answer fields render.
 const CLUE_TYPES = {
   NORMAL: "Normal — Question, Answer, Note",
-  MULTICHOICE: "MultiChoice — Question, Note, Answer + 3 Decoys",
+  MULTICHOICE: "MultiChoice — Question, Note, Answer + 3 Choices",
   COMBO: "Combo — Question, Note, extendable Answers & Decoys",
 };
 
@@ -39,6 +39,9 @@ const emptyClueForType = (type) => ({ type, question: "", note: "", answers: def
 const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.zip";
 const ATTACHMENT_EXTENSIONS = ATTACHMENT_ACCEPT.split(",");
 const isAllowedAttachment = (file) => ATTACHMENT_EXTENSIONS.includes(`.${(file.name.split(".").pop() || "").toLowerCase()}`);
+
+const LESSON_EXTENSIONS = [".pdf", ".docx", ".doc", ".txt"];
+const isLessonFile = (file) => LESSON_EXTENSIONS.includes(`.${(file.name.split(".").pop() || "").toLowerCase()}`);
 
 const FLIP_MS = 420;
 const FLIP_SWAP_MS = 210;
@@ -94,6 +97,123 @@ function FrameCorner({ corner }) {
   }[corner];
   return <div style={{ position: "absolute", width: 16, height: 16, pointerEvents: "none", ...pos }} />;
 }
+
+// A label with a small "?" circle next to it. Hovering (or focusing) the circle
+// shows a short plain explanation of what that field is for. The explanation
+// opens below the label so the scrolling page never clips it.
+function HelpLabel({ labelStyle, text, htmlFor, children }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+      <label htmlFor={htmlFor} style={labelStyle}>{children}</label>
+      <span
+        tabIndex={0}
+        role="img"
+        aria-label={text}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        style={{
+          width: "16px",
+          height: "16px",
+          borderRadius: "50%",
+          border: `1px solid ${colors.inkMuted}`,
+          color: colors.inkMuted,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: fonts.body,
+          fontSize: "11px",
+          fontWeight: "700",
+          lineHeight: 1,
+          cursor: "help",
+          userSelect: "none",
+          outline: "none",
+        }}
+      >
+        ?
+      </span>
+      {open && (
+        <span
+          role="tooltip"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            width: "250px",
+            padding: "8px 10px",
+            borderRadius: "4px",
+            backgroundColor: colors.ink,
+            color: "#FFF9EF",
+            fontFamily: fonts.body,
+            fontSize: "12px",
+            fontWeight: "400",
+            lineHeight: 1.4,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            zIndex: 5,
+          }}
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// A small circle shown beside a page heading: lit green with a check when the
+// page is filled in, lit red with an exclamation mark when it is not.
+function FillStatus({ filled }) {
+  const c = filled ? colors.success : colors.danger;
+  return (
+    <span
+      role="img"
+      aria-label={filled ? "Filled in" : "Not filled in yet"}
+      title={filled ? "Filled in" : "Not filled in yet"}
+      style={{
+        width: "18px",
+        height: "18px",
+        borderRadius: "50%",
+        backgroundColor: c,
+        color: "#FFF9EF",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        fontFamily: fonts.body,
+        fontSize: "12px",
+        fontWeight: "700",
+        lineHeight: 1,
+        boxShadow: `0 0 0 3px ${c}33, 0 0 8px ${c}99`,
+      }}
+    >
+      {filled ? <Check size={12} strokeWidth={3} /> : "!"}
+    </span>
+  );
+}
+
+// How many additional notes sit on one page of the book, so every page keeps
+// the same size. More notes continue on the next page.
+const NOTES_PER_PAGE = 5;
+
+const HELP = {
+  title: "Type the name of the campaign. Use a short, clear title.",
+  description: "Write one or two sentences that say what the campaign is about and which lesson it covers.",
+  vault: "Click one vault card. The vault sets how many entries the book has and the type of each entry: Normal, MultiChoice or Combo.",
+  resource:
+    "Attach a handout or reference sheet that students can open with this campaign. Press Auto-Generate to draft the entries from the attached .pdf, .docx, .doc or .txt file. You choose the difficulty in the chat, then review the entries before they are added.",
+  question: "Write the question to be answered. Use one short, clear sentence.",
+  note: "Write one plain sentence from the lesson that states the answer. It works as a hint for the question.",
+  answerNormal: "Type the one correct answer. Keep it short: one or two words.",
+  answerMulti: "Type the one correct answer. The three choices below must be wrong answers.",
+  choice: "Type a wrong choice that looks believable. Do not repeat the correct answer.",
+  answerCombo:
+    "Type each answer option. Tick Correct on every right answer and leave the wrong ones unticked. Use the button below to add more options.",
+  publish:
+    "If unchecked, the campaign is saved as a draft that you can keep editing. If checked, it is published immediately.",
+  extraNote:
+    "Write one short fact from the lesson that does not answer any question. Do not use an answer or a decoy from the entries.",
+};
 
 // Left-page illustration slot, shown as-is on every page (page 1 and every
 // clue page after it) regardless of which realm is picked. No real artwork
@@ -223,7 +343,7 @@ function SealButton({ onClick, disabled, children }) {
       style={{
         position: "relative",
         width: "100%",
-        padding: "14px 20px 14px 58px",
+        padding: "14px 20px",
         background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`,
         color: "#FFF9EF",
         border: `1px solid ${colors.vaultBorder}`,
@@ -236,24 +356,6 @@ function SealButton({ onClick, disabled, children }) {
         clipPath: "polygon(0 0,100% 0,97% 50%,100% 100%,0 100%,3% 50%)",
       }}
     >
-      <span
-        style={{
-          position: "absolute",
-          left: "14px",
-          top: "50%",
-          transform: "translateY(-50%)",
-          width: "30px",
-          height: "30px",
-          borderRadius: "50%",
-          background: `radial-gradient(circle at 35% 30%, #B85050, ${colors.danger} 70%)`,
-          boxShadow: "inset 0 2px 3px rgba(255,255,255,0.3), inset 0 -3px 4px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Lock size={14} color="#F5D8B0" />
-      </span>
       {children}
     </button>
   );
@@ -406,7 +508,7 @@ function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
         <div key={i} style={{ marginBottom: "10px" }}>
           {clueType !== "NORMAL" && (
             <span style={{ display: "block", marginBottom: "3px", fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: a.isCorrect ? colors.success : colors.inkMuted }}>
-              {a.isCorrect ? "Correct answer" : "Decoy"}
+              {a.isCorrect ? "Correct answer" : clueType === "MULTICHOICE" ? "Choice" : "Decoy"}
             </span>
           )}
           <input
@@ -414,7 +516,7 @@ function GeneratedClueCard({ clue, onSaveEdit, onApprove, onReject }) {
             value={a.text}
             onChange={(e) => setAnswerAt(i, e.target.value)}
             onBlur={flushEdit}
-            placeholder={a.isCorrect ? "Answer" : "Decoy"}
+            placeholder={a.isCorrect ? "Answer" : clueType === "MULTICHOICE" ? "Choice" : "Decoy"}
             style={{
               width: "100%",
               padding: "8px 10px",
@@ -492,10 +594,10 @@ function GeneratedCluesReview({ clues, notes, notesError, onSaveEdit, onApprove,
   return (
     <div>
       <h2 style={{ fontFamily: fonts.displayDecorative, fontSize: "20px", color: colors.ink, margin: "0 0 6px 0" }}>
-        Review Generated Clues
+        Review Generated Entries
       </h2>
       <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 14px 0" }}>
-        Approve the clues you want added. Each one drops into the next empty page of its own type
+        Approve the entries you want added. Each one drops into the next empty page of its own type
         (Normal, MultiChoice or Combo), in order — you can still edit the question, hint, answers and decoys here first.
       </p>
 
@@ -517,7 +619,7 @@ function GeneratedCluesReview({ clues, notes, notesError, onSaveEdit, onApprove,
           ) : (
             <>
               <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 8px 0" }}>
-                These facts belong to no question. They are added to the last page when you add the clues, where you can still edit them.
+                These facts belong to no question. They are added to the last page when you add the entries, where you can still edit them.
               </p>
               <ol style={{ margin: 0, paddingLeft: "18px", fontFamily: fonts.body, fontSize: "12px", color: colors.ink, lineHeight: 1.5 }}>
                 {notes.map((n, i) => (
@@ -553,7 +655,7 @@ function GeneratedCluesReview({ clues, notes, notesError, onSaveEdit, onApprove,
             cursor: approvedCount === 0 ? "default" : "pointer",
           }}
         >
-          Add {approvedCount || ""} Approved Clue{approvedCount === 1 ? "" : "s"}
+          Add {approvedCount || ""} Approved {approvedCount === 1 ? "Entry" : "Entries"}
         </button>
       </div>
     </div>
@@ -621,7 +723,6 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   // notes page when the approved clues are added), or why they could not be written.
   const [generatedNotes, setGeneratedNotes] = useState([]);
   const [notesError, setNotesError] = useState("");
-  const fileInputRef = useRef(null);
   const reviewing = lessonStep === "review";
   // The uploaded lesson the chat is asking a difficulty for, and the vault
   // picked right now, kept in refs so the chat's reply (an event, handled
@@ -664,8 +765,9 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   };
 
   // Cover page, one page per clue, then (when the vault asks for any) the
-  // additional notes page.
-  const lastIndex = pages.length + (noteCount > 0 ? 1 : 0);
+  // additional notes page, then the confirmation page.
+  const notePageCount = noteCount > 0 ? Math.ceil(noteCount / NOTES_PER_PAGE) : 0;
+  const lastIndex = pages.length + notePageCount + 1;
   const atFrontier = activeIndex === lastIndex;
 
   // An existing campaign opens with its saved pages; only the vault's current
@@ -732,7 +834,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     if (nextScene === scene || flipping || closing || reviewing) return;
     const hasContent =
       pages.some((p) => p.question.trim() || p.answers.some((a) => a.text.trim())) || notes.some((n) => n.trim());
-    if (hasContent && !window.confirm("Switching vaults resets the clue pages to match the new vault's question set. Continue?")) {
+    if (hasContent && !window.confirm("Switching vaults resets the entry pages to match the new vault's question set. Continue?")) {
       return;
     }
     setScene(nextScene);
@@ -756,8 +858,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     setTimeout(() => setFlipping(null), FLIP_MS);
   };
 
-  const updateClue = (field, value) => {
-    const clueIndex = activeIndex - 1;
+  const updateClue = (field, value, pageIdx = activeIndex - 1) => {
+    const clueIndex = pageIdx;
     setPages(pages.map((p, i) => (i === clueIndex ? { ...p, [field]: value } : p)));
   };
 
@@ -765,8 +867,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     setNotes(notes.map((n, i) => (i === index ? value : n)));
   };
 
-  const updateAnswerField = (answerIndex, field, value) => {
-    const clueIndex = activeIndex - 1;
+  const updateAnswerField = (answerIndex, field, value, pageIdx = activeIndex - 1) => {
+    const clueIndex = pageIdx;
     setPages(pages.map((p, i) => {
       if (i !== clueIndex) return p;
       const answers = p.answers.map((a, j) => (j === answerIndex ? { ...a, [field]: value } : a));
@@ -776,15 +878,15 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
 
   // Combo-only - Normal has exactly 1 answer and MultiChoice's 4 slots are
   // fixed, so only Combo's own render branch ever calls these.
-  const addAnswerRow = () => {
-    const clueIndex = activeIndex - 1;
+  const addAnswerRow = (pageIdx = activeIndex - 1) => {
+    const clueIndex = pageIdx;
     setPages(pages.map((p, i) =>
       i === clueIndex ? { ...p, answers: [...p.answers, { text: "", isCorrect: false }] } : p
     ));
   };
 
-  const removeAnswerRow = (answerIndex) => {
-    const clueIndex = activeIndex - 1;
+  const removeAnswerRow = (answerIndex, pageIdx = activeIndex - 1) => {
+    const clueIndex = pageIdx;
     setPages(pages.map((p, i) =>
       i === clueIndex ? { ...p, answers: p.answers.filter((_, j) => j !== answerIndex) } : p
     ));
@@ -809,16 +911,21 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
 
   const labelStyle = { fontFamily: fonts.body, color: colors.ink, fontWeight: "600", fontSize: "13px" };
 
-  // Uploads the chosen lesson file and extracts its text, then opens the AI
-  // assistant chat with that file attached so the teacher can pick Easy,
-  // Medium or Hard there (see TeacherChatWidget). The clues are drafted once
-  // the chat reports the chosen difficulty (handleDifficultyChosen below).
-  // One clue is drafted per page of this vault's question set, each of that
-  // page's type (Normal, MultiChoice or Combo).
-  const handleFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
+  // Auto-Generate: uploads the attached resource file and extracts its text,
+  // then opens the AI assistant chat with that file attached so the teacher
+  // can pick Easy, Medium or Hard there (see TeacherChatWidget). The entries
+  // are drafted once the chat reports the chosen difficulty
+  // (handleDifficultyChosen below). One entry is drafted per page of this
+  // vault's question set, each of that page's type (Normal, MultiChoice or Combo).
+  const handleAutoGenerate = async () => {
+    const file = attachmentFile;
     if (!file) return;
+
+    if (!isLessonFile(file)) {
+      setLessonError(`Auto-Generate supports ${LESSON_EXTENSIONS.join(", ")} files only.`);
+      setLessonStep("error");
+      return;
+    }
 
     if (!scene || templateStatus !== "ready") {
       setLessonError("Choose a vault with a published question-set first.");
@@ -871,7 +978,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
         body: JSON.stringify({ scene: sceneRef.current, difficulty }),
       });
       const genData = await genRes.json();
-      if (!genRes.ok) throw new Error(genData.message || "Clue generation failed");
+      if (!genRes.ok) throw new Error(genData.message || "Entry generation failed");
 
       // The vault's additional notes are written from the same lesson, about facts
       // that none of these clues use. If they cannot be written, the clues are
@@ -938,7 +1045,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to update clue");
+      if (!res.ok) throw new Error(data.message || "Failed to update entry");
       setGeneratedClues((cs) => cs.map((c) => (c.id === id ? data : c)));
     } catch (err) {
       alert(err.message);
@@ -986,7 +1093,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     }
 
     if (used < approved.length) {
-      alert(`Only ${used} of ${approved.length} approved clue(s) fit into this vault's empty pages - the rest weren't added.`);
+      alert(`Only ${used} of ${approved.length} approved entry(ies) fit into this vault's empty pages - the rest weren't added.`);
     }
 
     setLessonStep("idle");
@@ -1115,7 +1222,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
   const closeAndSeal = async () => {
     if (closing || submitting) return;
     if (reviewing) {
-      alert("Finish reviewing the generated clues first.");
+      alert("Finish reviewing the generated entries first.");
       return;
     }
     if (!title.trim()) {
@@ -1129,12 +1236,12 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     const incomplete = findIncompletePage();
     if (incomplete !== -1) {
       setActiveIndex(incomplete + 1);
-      alert(`Clue ${incomplete + 1} is incomplete - fill in its question and every answer before sealing the book.`);
+      alert(`Entry ${incomplete + 1} is incomplete - fill in its question and every answer before sealing the book.`);
       return;
     }
     const blankNote = findBlankNote();
     if (blankNote !== -1) {
-      setActiveIndex(pages.length + 1);
+      setActiveIndex(pages.length + 1 + Math.floor(blankNote / NOTES_PER_PAGE));
       alert(`Additional note ${blankNote + 1} is empty - fill in every additional note before sealing the book.`);
       return;
     }
@@ -1145,6 +1252,24 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
       return;
     }
     setTimeout(onClose, CLOSE_MS);
+  };
+
+  // The Next button turns to the next page. Only the cover is checked (a title
+  // and a ready vault are needed before there are any pages to go to); entry
+  // and note pages can be left unfilled and are checked when confirming.
+  const goNext = () => {
+    if (flipping || closing || reviewing) return;
+    if (activeIndex === 0) {
+      if (!title.trim()) {
+        alert("Title is required.");
+        return;
+      }
+      if (!scene || templateStatus !== "ready") {
+        alert("Choose a vault with a published question-set first.");
+        return;
+      }
+    }
+    turnPage("next");
   };
 
   const discard = () => {
@@ -1158,9 +1283,204 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
     transformOrigin: "left center",
   };
 
-  const isNotesPage = noteCount > 0 && activeIndex === pages.length + 1;
-  const isCluePage = activeIndex > 0 && !isNotesPage;
-  const currentClue = isCluePage ? pages[activeIndex - 1] : null;
+  const isNotesPage = noteCount > 0 && activeIndex > pages.length && activeIndex < lastIndex;
+  const notePage = isNotesPage ? activeIndex - pages.length - 1 : 0; // 0-based page of notes
+  const noteStart = notePage * NOTES_PER_PAGE;
+  const isConfirmPage = activeIndex === lastIndex;
+  const isCluePage = activeIndex > 0 && !isNotesPage && !isConfirmPage;
+  // The left page shows the cover preview (title, description, vault) on the
+  // cover, on the first entry and on the confirmation page; on every other page
+  // it shows the previous page of the book, read-only.
+  const showCoverOnLeft = activeIndex === 0 || activeIndex === 1 || isConfirmPage || pages.length === 0;
+
+  // The form of one entry page / one additional-notes page. The right page and
+  // the left page (which shows the previous page) both use these, so the previous
+  // page can still be edited. `prefix` keeps the focus highlight of the two apart.
+  const renderEntryForm = (pageIdx, prefix) => {
+    const clue = pages[pageIdx];
+    return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <p style={{ fontFamily: fonts.flourish, fontSize: "14px", color: colors.ember, letterSpacing: "1px", margin: 0 }}>
+            Entry {pageIdx + 1} of {pages.length}
+          </p>
+          <FillStatus
+            filled={
+              !!clue.question.trim() &&
+              clue.answers.length > 0 &&
+              clue.answers.every((a) => a.text.trim()) &&
+              (clue.type !== "COMBO" || clue.answers.some((a) => a.isCorrect))
+            }
+          />
+        </div>
+        <span style={{ fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: colors.inkMuted, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+          {clue.type}
+        </span>
+      </div>
+
+      <p style={{ fontFamily: fonts.body, fontSize: "11px", color: colors.inkMuted, margin: "0 0 14px 0", fontStyle: "italic" }}>
+        {CLUE_TYPES[clue.type]} — set by this vault's template, can't be changed here.
+      </p>
+
+      <HelpLabel labelStyle={labelStyle} text={HELP.question}>Question</HelpLabel>
+      <textarea
+        rows={3}
+        value={clue.question}
+        onChange={(e) => updateClue("question", e.target.value, pageIdx)}
+        onFocus={() => setFocusedField(`${prefix}question`)}
+        onBlur={() => setFocusedField(null)}
+        placeholder="Write the question for this entry."
+        style={{ ...fieldStyle(`${prefix}question`), marginBottom: "14px" }}
+      />
+
+      <HelpLabel labelStyle={labelStyle} text={HELP.note}>Note</HelpLabel>
+      <textarea
+        rows={2}
+        value={clue.note}
+        onChange={(e) => updateClue("note", e.target.value, pageIdx)}
+        onFocus={() => setFocusedField(`${prefix}note`)}
+        onBlur={() => setFocusedField(null)}
+        placeholder="Hint for the Journal's Note panel: a short sentence that contains the answer (optional)"
+        style={{ ...fieldStyle(`${prefix}note`), marginBottom: "18px" }}
+      />
+
+      {clue.type === "NORMAL" && (
+        <>
+          <HelpLabel labelStyle={labelStyle} text={HELP.answerNormal}>Answer</HelpLabel>
+          <input
+            type="text"
+            value={clue.answers[0]?.text || ""}
+            onChange={(e) => updateAnswerField(0, "text", e.target.value, pageIdx)}
+            onFocus={() => setFocusedField(`${prefix}answer0`)}
+            onBlur={() => setFocusedField(null)}
+            placeholder="The true answer"
+            style={fieldStyle(`${prefix}answer0`)}
+          />
+        </>
+      )}
+
+      {clue.type === "MULTICHOICE" && (
+        <>
+          <HelpLabel labelStyle={labelStyle} text={HELP.answerMulti}>Correct Answer</HelpLabel>
+          <input
+            type="text"
+            value={clue.answers[0]?.text || ""}
+            onChange={(e) => updateAnswerField(0, "text", e.target.value, pageIdx)}
+            onFocus={() => setFocusedField(`${prefix}answer0`)}
+            onBlur={() => setFocusedField(null)}
+            placeholder="The one correct answer"
+            style={{ ...fieldStyle(`${prefix}answer0`), marginBottom: "14px" }}
+          />
+          {[1, 2, 3].map((idx) => (
+            <div key={idx}>
+              <HelpLabel labelStyle={labelStyle} text={HELP.choice}>Choice {idx}</HelpLabel>
+              <input
+                type="text"
+                value={clue.answers[idx]?.text || ""}
+                onChange={(e) => updateAnswerField(idx, "text", e.target.value, pageIdx)}
+                onFocus={() => setFocusedField(`${prefix}answer${idx}`)}
+                onBlur={() => setFocusedField(null)}
+                placeholder={`Wrong answer ${idx}`}
+                style={{ ...fieldStyle(`${prefix}answer${idx}`), marginBottom: idx < 3 ? "14px" : 0 }}
+              />
+            </div>
+          ))}
+        </>
+      )}
+
+      {clue.type === "COMBO" && (
+        <>
+          <HelpLabel labelStyle={labelStyle} text={HELP.answerCombo}>Answers &amp; Decoys</HelpLabel>
+          {clue.answers.map((a, idx) => (
+            <div key={idx} style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
+              <input
+                type="text"
+                value={a.text}
+                onChange={(e) => updateAnswerField(idx, "text", e.target.value, pageIdx)}
+                onFocus={() => setFocusedField(`${prefix}answer${idx}`)}
+                onBlur={() => setFocusedField(null)}
+                placeholder="Answer text"
+                style={{ ...fieldStyle(`${prefix}answer${idx}`), marginTop: 0, flex: 1 }}
+              />
+              <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", fontFamily: fonts.body, color: colors.ink, whiteSpace: "nowrap" }}>
+                <input
+                  type="checkbox"
+                  checked={a.isCorrect}
+                  onChange={(e) => updateAnswerField(idx, "isCorrect", e.target.checked, pageIdx)}
+                />
+                Correct
+              </label>
+              {clue.answers.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeAnswerRow(idx, pageIdx)}
+                  title="Remove this answer option"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex" }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => addAnswerRow(pageIdx)}
+            style={{
+              marginTop: "10px",
+              background: "none",
+              border: `1px dashed ${colors.parchmentLine}`,
+              borderRadius: "4px",
+              padding: "6px 10px",
+              cursor: "pointer",
+              color: colors.ember,
+              fontFamily: fonts.body,
+              fontSize: "12px",
+            }}
+          >
+            + Add Answer / Decoy
+          </button>
+        </>
+      )}
+    </div>
+    );
+  };
+
+  const renderNotesForm = (pageNo, prefix) => {
+    const start = pageNo * NOTES_PER_PAGE;
+    return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", margin: "0 0 16px 0" }}>
+        <p style={{ fontFamily: fonts.flourish, fontSize: "14px", color: colors.ember, letterSpacing: "1px", margin: 0 }}>
+          Additional Notes{notePageCount > 1 ? ` (${pageNo + 1} of ${notePageCount})` : ""}
+        </p>
+        <FillStatus filled={notes.slice(start, start + NOTES_PER_PAGE).every((n) => n.trim())} />
+      </div>
+      <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 14px 0", fontStyle: "italic" }}>
+        {noteCount} note{noteCount === 1 ? "" : "s"} set by this vault's template. Each is a short fact from the lesson that
+        belongs to no question. They are mixed in with the hints, so players cannot tell which hint goes with which answer.
+      </p>
+
+      {notes.slice(start, start + NOTES_PER_PAGE).map((n, j, shown) => {
+        const i = start + j;
+        return (
+        <div key={i} style={{ marginBottom: j < shown.length - 1 ? "14px" : 0 }}>
+          <HelpLabel labelStyle={labelStyle} text={HELP.extraNote}>Note {i + 1}</HelpLabel>
+          <textarea
+            rows={3}
+            value={n}
+            onChange={(e) => updateNote(i, e.target.value)}
+            onFocus={() => setFocusedField(`${prefix}extra${i}`)}
+            onBlur={() => setFocusedField(null)}
+            placeholder="A short fact from the lesson that is not the answer to any question"
+            style={fieldStyle(`${prefix}extra${i}`)}
+          />
+        </div>
+        );
+      })}
+    </div>
+    );
+  };
 
   return (
     <div
@@ -1231,22 +1551,25 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
               onClick={discard}
               disabled={submitting || closing}
               style={{
-                background: "none",
-                border: "none",
+                width: "124px",
+                padding: "7px 12px",
+                borderRadius: "4px",
+                border: `1px solid ${colors.danger}`,
+                backgroundColor: colors.danger,
+                color: "#FFF9EF",
                 cursor: submitting || closing ? "default" : "pointer",
-                color: colors.brass,
+                opacity: submitting || closing ? 0.6 : 1,
                 fontFamily: fonts.body,
                 fontSize: "12px",
-                opacity: 0.75,
-                textDecoration: "underline",
+                fontWeight: "600",
               }}
             >
-              {isEditing ? "discard changes" : "discard draft"}
+              {isEditing ? "Discard Changes" : "Discard Draft"}
             </button>
             <p style={{ fontFamily: fonts.flourish, fontSize: "16px", color: colors.brassBright, letterSpacing: "1px", margin: 0 }}>
               Campaign Editor
             </p>
-            <span style={{ width: "78px" }} />
+            <span style={{ width: "124px" }} />
           </div>
 
           {/* Pages */}
@@ -1255,15 +1578,30 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
             <div style={{ flex: 1, display: "flex" }}>
               <div className="sb-page" style={{ position: "relative", width: "100%", border: `1px solid ${colors.parchmentLine}`, boxShadow: "inset 0 0 34px rgba(120,90,40,0.15), 0 8px 20px rgba(0,0,0,0.3)", ...paperStyle() }}>
                 <div style={{ padding: "22px", height: "100%", boxSizing: "border-box", overflowY: "auto" }}>
+                  {showCoverOnLeft ? (
+                    <>
                   <p style={{ fontFamily: fonts.flourish, fontSize: "11px", color: colors.inkMuted, letterSpacing: "2px", margin: "0 0 10px 0" }}>
                     {isEditing ? "EDITING CAMPAIGN" : "NEW CAMPAIGN"}
                   </p>
-                  <IllustrationFrame scene={scene} label={isNotesPage ? "Additional Notes" : isCluePage ? "Clue Preview" : "Scene Preview"} showIcon={activeIndex === 0} />
+                  <IllustrationFrame scene={scene} label="Scene Preview" showIcon />
                   <h2 style={{ fontFamily: fonts.displayDecorative, fontSize: "20px", color: colors.ink, margin: "14px 0 0 0" }}>
                     {title || "Untitled Campaign"}
                   </h2>
                   {description && (
                     <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "8px 0 0 0" }}>{description}</p>
+                  )}
+                    </>
+                  ) : (
+                    <>
+                      <p style={{ fontFamily: fonts.flourish, fontSize: "11px", color: colors.inkMuted, letterSpacing: "2px", margin: "0 0 14px 0" }}>
+                        PREVIOUS PAGE
+                      </p>
+                      {isCluePage
+                        ? renderEntryForm(activeIndex - 2, "prev-")
+                        : notePage === 0
+                        ? renderEntryForm(pages.length - 1, "prev-")
+                        : renderNotesForm(notePage - 1, "prev-")}
+                    </>
                   )}
                 </div>
               </div>
@@ -1303,38 +1641,61 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                       onInsert={insertApprovedClues}
                       onCancel={cancelReview}
                     />
-                  ) : isNotesPage ? (
+                  ) : isConfirmPage ? (
                     <div>
-                      <p style={{ fontFamily: fonts.flourish, fontSize: "14px", color: colors.ember, letterSpacing: "1px", margin: "0 0 16px 0" }}>
-                        Additional Notes
-                      </p>
-                      <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 14px 0", fontStyle: "italic" }}>
-                        {noteCount} note{noteCount === 1 ? "" : "s"} set by this vault's template. Each is a short fact from the lesson that
-                        belongs to no question. They are mixed in with the hints, so players cannot tell which hint goes with which answer.
+                      <h2 style={{ fontFamily: fonts.displayDecorative, fontSize: "22px", color: colors.ink, margin: "0 0 8px 0" }}>
+                        Confirm Campaign
+                      </h2>
+                      <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "0 0 16px 0", fontStyle: "italic" }}>
+                        Check the details below. Use the page arrows to go back and change anything.
                       </p>
 
-                      {notes.map((n, i) => (
-                        <div key={i} style={{ marginBottom: i < notes.length - 1 ? "14px" : 0 }}>
-                          <label style={labelStyle}>Note {i + 1}</label>
-                          <textarea
-                            rows={3}
-                            value={n}
-                            onChange={(e) => updateNote(i, e.target.value)}
-                            onFocus={() => setFocusedField(`extra${i}`)}
-                            onBlur={() => setFocusedField(null)}
-                            placeholder="A short fact from the lesson that is not the answer to any question"
-                            style={fieldStyle(`extra${i}`)}
-                          />
+                      {[
+                        ["Title", title || "—"],
+                        ["Vault", scene ? getSceneMeta(scene).label : "—"],
+                        ["Entries", String(pages.length)],
+                        ...(noteCount > 0 ? [["Additional notes", String(noteCount)]] : []),
+                        ["Resource file", attachmentFile ? attachmentFile.name : existingAttachment && !removeAttachment ? existingAttachment.filename : "None"],
+                      ].map(([k, v]) => (
+                        <div key={k} style={{ display: "flex", gap: "10px", marginBottom: "6px", fontFamily: fonts.body, fontSize: "13px", color: colors.ink }}>
+                          <span style={{ width: "120px", flexShrink: 0, fontWeight: "600" }}>{k}</span>
+                          <span style={{ flex: 1, wordBreak: "break-word" }}>{v}</span>
                         </div>
                       ))}
+
+                      <div style={{ marginTop: "20px", paddingTop: "16px", borderTop: `1px dashed ${colors.parchmentLine}`, display: "flex", alignItems: "center", gap: "8px" }}>
+                        <input
+                          type="checkbox"
+                          id="publish-now-checkbox"
+                          checked={publishNow}
+                          onChange={(e) => setPublishNow(e.target.checked)}
+                          disabled={submitting || closing}
+                          style={{ width: "15px", height: "15px", cursor: submitting || closing ? "default" : "pointer", accentColor: colors.ember }}
+                        />
+                        <HelpLabel labelStyle={labelStyle} text={HELP.publish} htmlFor="publish-now-checkbox">
+                          Publish
+                        </HelpLabel>
+                      </div>
+
+                      <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.ink, margin: "16px 0 0 0" }}>
+                        {isEditing
+                          ? publishNow
+                            ? "Select Confirm to save your changes and publish this campaign."
+                            : "Select Confirm to save your changes as a draft."
+                          : publishNow
+                          ? "Select Confirm to create this campaign and publish it now."
+                          : "Select Confirm to create this campaign and save it as a draft."}
+                      </p>
                     </div>
+                  ) : isNotesPage ? (
+                    renderNotesForm(notePage, "")
                   ) : activeIndex === 0 ? (
                     <div>
                       <h2 style={{ fontFamily: fonts.displayDecorative, fontSize: "22px", color: colors.ink, margin: "0 0 18px 0" }}>
                         {isEditing ? "Edit Campaign" : "Create Campaign"}
                       </h2>
 
-                      <label style={labelStyle}>Title</label>
+                      <HelpLabel labelStyle={labelStyle} text={HELP.title}>Title</HelpLabel>
                       <input
                         type="text"
                         value={title}
@@ -1344,7 +1705,7 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                         style={{ ...fieldStyle("title"), marginBottom: "16px" }}
                       />
 
-                      <label style={labelStyle}>Description</label>
+                      <HelpLabel labelStyle={labelStyle} text={HELP.description}>Description</HelpLabel>
                       <textarea
                         rows={3}
                         value={description}
@@ -1354,7 +1715,10 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                         style={{ ...fieldStyle("description"), marginBottom: "20px" }}
                       />
 
-                      <label style={labelStyle}>Choose a Vault</label>
+                      <HelpLabel labelStyle={labelStyle} text={HELP.vault}>Choose a Vault</HelpLabel>
+                      <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "6px 0 0 0" }}>
+                        Select a playable environment.
+                      </p>
                       <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
                         {SCENE_LIST.map((s) => (
                           <SceneCard key={s.key} s={s} active={scene === s.key} onClick={() => handleSceneChange(s.key)} />
@@ -1378,64 +1742,15 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                       )}
                       {scene && templateStatus === "ready" && (
                         <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.success, margin: "10px 0 0 0" }}>
-                          {pages.length} clue{pages.length === 1 ? "" : "s"} in this vault's question set — turn the page to fill them in.
+                          {pages.length} {pages.length === 1 ? "entry" : "entries"} in this vault's question set — turn the page to fill them in.
                         </p>
                       )}
 
                       <div style={{ marginTop: "22px", paddingTop: "18px", borderTop: `1px dashed ${colors.parchmentLine}` }}>
-                        <label style={labelStyle}>Generate Clues from a Lesson</label>
+                        <HelpLabel labelStyle={labelStyle} text={HELP.resource}>Campaign Resource File</HelpLabel>
                         <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "6px 0 10px 0" }}>
-                          {scene && templateStatus === "ready"
-                            ? `Upload a lesson document (.pdf, .docx, .doc, .txt), choose Easy, Medium or Hard in the AI assistant chat, and it will draft questions based only on that document for you to review — one for each page of this vault's question set, matching its Normal, MultiChoice or Combo type.`
-                            : "Choose a vault with a published question-set above first."}
-                        </p>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept=".pdf,.docx,.doc,.txt"
-                          onChange={handleFileChange}
-                          style={{ display: "none" }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={!scene || templateStatus !== "ready" || lessonStep === "uploading" || lessonStep === "generating"}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "7px",
-                            padding: "9px 14px",
-                            borderRadius: "4px",
-                            border: `1px solid ${colors.ember}`,
-                            backgroundColor: "transparent",
-                            color: colors.ember,
-                            fontFamily: fonts.body,
-                            fontSize: "13px",
-                            fontWeight: "600",
-                            cursor: !scene || templateStatus !== "ready" || lessonStep === "uploading" || lessonStep === "generating" ? "default" : "pointer",
-                            opacity: !scene || templateStatus !== "ready" || lessonStep === "uploading" || lessonStep === "generating" ? 0.6 : 1,
-                          }}
-                        >
-                          <Sparkles size={14} />
-                          {lessonStep === "uploading"
-                            ? "Uploading..."
-                            : lessonStep === "waiting"
-                            ? "Choose the difficulty in the chat..."
-                            : lessonStep === "generating"
-                            ? "Generating clues..."
-                            : "Choose a File"}
-                        </button>
-                        {lessonStep === "error" && (
-                          <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.danger, margin: "8px 0 0 0" }}>
-                            {lessonError}
-                          </p>
-                        )}
-                      </div>
-
-                      <div style={{ marginTop: "22px", paddingTop: "18px", borderTop: `1px dashed ${colors.parchmentLine}` }}>
-                        <label style={labelStyle}>Campaign Resource File</label>
-                        <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "6px 0 10px 0" }}>
-                          Attach a file (handout, reference sheet, etc.) for students to view alongside this campaign.
+                          Attach a file (handout, reference sheet, etc.) for students to view alongside this campaign. To draft the
+                          entries from it, attach a .pdf, .docx, .doc or .txt file and press Auto-Generate.
                         </p>
 
                         <input
@@ -1446,6 +1761,8 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                           style={{ display: "none" }}
                         />
 
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
                         {attachmentFile || (existingAttachment && !removeAttachment) ? (
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", borderRadius: "4px", border: `1px solid ${colors.parchmentLine}`, backgroundColor: colors.parchmentPanel }}>
                             <FileText size={14} color={colors.ember} style={{ flexShrink: 0 }} />
@@ -1490,6 +1807,49 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                             <Paperclip size={14} /> Attach a File
                           </button>
                         )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleAutoGenerate}
+                            disabled={!attachmentFile || lessonStep === "uploading" || lessonStep === "generating"}
+                            title="Draft the entries from the attached file"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "7px",
+                              padding: "9px 14px",
+                              borderRadius: "4px",
+                              border: `1px solid ${colors.ember}`,
+                              backgroundColor: "transparent",
+                              color: colors.ember,
+                              fontFamily: fonts.body,
+                              fontSize: "13px",
+                              fontWeight: "600",
+                              whiteSpace: "nowrap",
+                              cursor: !attachmentFile || lessonStep === "uploading" || lessonStep === "generating" ? "default" : "pointer",
+                              opacity: !attachmentFile || lessonStep === "uploading" || lessonStep === "generating" ? 0.6 : 1,
+                            }}
+                          >
+                            <Sparkles size={14} />
+                            {lessonStep === "uploading"
+                              ? "Uploading..."
+                              : lessonStep === "waiting"
+                              ? "Choose the difficulty in the chat..."
+                              : lessonStep === "generating"
+                              ? "Generating entries..."
+                              : "Auto-Generate"}
+                          </button>
+                        </div>
+                        {!attachmentFile && (
+                          <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.inkMuted, margin: "8px 0 0 0" }}>
+                            Attach a .pdf, .docx, .doc or .txt file to use Auto-Generate.
+                          </p>
+                        )}
+                        {lessonStep === "error" && (
+                          <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.danger, margin: "8px 0 0 0" }}>
+                            {lessonError}
+                          </p>
+                        )}
                         {attachmentError && (
                           <p style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.danger, margin: "8px 0 0 0" }}>
                             {attachmentError}
@@ -1498,177 +1858,24 @@ function SpellBookModal({ roomId, campaign, onClose, onSaved }) {
                       </div>
                     </div>
                   ) : (
-                    <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                        <p style={{ fontFamily: fonts.flourish, fontSize: "14px", color: colors.ember, letterSpacing: "1px", margin: 0 }}>
-                          Clue {activeIndex} of {pages.length}
-                        </p>
-                        <span style={{ fontFamily: fonts.body, fontSize: "11px", fontWeight: "600", color: colors.inkMuted, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                          {currentClue.type}
-                        </span>
-                      </div>
-
-                      <p style={{ fontFamily: fonts.body, fontSize: "11px", color: colors.inkMuted, margin: "0 0 14px 0", fontStyle: "italic" }}>
-                        {CLUE_TYPES[currentClue.type]} — set by this vault's template, can't be changed here.
-                      </p>
-
-                      <label style={labelStyle}>Question</label>
-                      <textarea
-                        rows={3}
-                        value={currentClue.question}
-                        onChange={(e) => updateClue("question", e.target.value)}
-                        onFocus={() => setFocusedField("question")}
-                        onBlur={() => setFocusedField(null)}
-                        placeholder="What riddle guards this clue? Shown as the Clue text in-game too."
-                        style={{ ...fieldStyle("question"), marginBottom: "14px" }}
-                      />
-
-                      <label style={labelStyle}>Note</label>
-                      <textarea
-                        rows={2}
-                        value={currentClue.note}
-                        onChange={(e) => updateClue("note", e.target.value)}
-                        onFocus={() => setFocusedField("note")}
-                        onBlur={() => setFocusedField(null)}
-                        placeholder="Hint for the Journal's Note panel: a short sentence that contains the answer (optional)"
-                        style={{ ...fieldStyle("note"), marginBottom: "18px" }}
-                      />
-
-                      {currentClue.type === "NORMAL" && (
-                        <>
-                          <label style={labelStyle}>Answer</label>
-                          <input
-                            type="text"
-                            value={currentClue.answers[0]?.text || ""}
-                            onChange={(e) => updateAnswerField(0, "text", e.target.value)}
-                            onFocus={() => setFocusedField("answer0")}
-                            onBlur={() => setFocusedField(null)}
-                            placeholder="The true answer"
-                            style={fieldStyle("answer0")}
-                          />
-                        </>
-                      )}
-
-                      {currentClue.type === "MULTICHOICE" && (
-                        <>
-                          <label style={labelStyle}>Correct Answer</label>
-                          <input
-                            type="text"
-                            value={currentClue.answers[0]?.text || ""}
-                            onChange={(e) => updateAnswerField(0, "text", e.target.value)}
-                            onFocus={() => setFocusedField("answer0")}
-                            onBlur={() => setFocusedField(null)}
-                            placeholder="The one correct answer"
-                            style={{ ...fieldStyle("answer0"), marginBottom: "14px" }}
-                          />
-                          {[1, 2, 3].map((idx) => (
-                            <div key={idx}>
-                              <label style={labelStyle}>Decoy {idx}</label>
-                              <input
-                                type="text"
-                                value={currentClue.answers[idx]?.text || ""}
-                                onChange={(e) => updateAnswerField(idx, "text", e.target.value)}
-                                onFocus={() => setFocusedField(`answer${idx}`)}
-                                onBlur={() => setFocusedField(null)}
-                                placeholder={`Wrong answer ${idx}`}
-                                style={{ ...fieldStyle(`answer${idx}`), marginBottom: idx < 3 ? "14px" : 0 }}
-                              />
-                            </div>
-                          ))}
-                        </>
-                      )}
-
-                      {currentClue.type === "COMBO" && (
-                        <>
-                          <label style={labelStyle}>Answers &amp; Decoys</label>
-                          {currentClue.answers.map((a, idx) => (
-                            <div key={idx} style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
-                              <input
-                                type="text"
-                                value={a.text}
-                                onChange={(e) => updateAnswerField(idx, "text", e.target.value)}
-                                onFocus={() => setFocusedField(`answer${idx}`)}
-                                onBlur={() => setFocusedField(null)}
-                                placeholder="Answer text"
-                                style={{ ...fieldStyle(`answer${idx}`), marginTop: 0, flex: 1 }}
-                              />
-                              <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", fontFamily: fonts.body, color: colors.ink, whiteSpace: "nowrap" }}>
-                                <input
-                                  type="checkbox"
-                                  checked={a.isCorrect}
-                                  onChange={(e) => updateAnswerField(idx, "isCorrect", e.target.checked)}
-                                />
-                                Correct
-                              </label>
-                              {currentClue.answers.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeAnswerRow(idx)}
-                                  title="Remove this answer option"
-                                  style={{ background: "none", border: "none", cursor: "pointer", color: colors.inkMuted, display: "flex" }}
-                                >
-                                  <Trash2 size={13} />
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={addAnswerRow}
-                            style={{
-                              marginTop: "10px",
-                              background: "none",
-                              border: `1px dashed ${colors.parchmentLine}`,
-                              borderRadius: "4px",
-                              padding: "6px 10px",
-                              cursor: "pointer",
-                              color: colors.ember,
-                              fontFamily: fonts.body,
-                              fontSize: "12px",
-                            }}
-                          >
-                            + Add Answer / Decoy
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    renderEntryForm(activeIndex - 1, "")
                   )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Publish choice */}
-          <div style={{ padding: "16px 6px 0 6px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <input
-              type="checkbox"
-              id="publish-now-checkbox"
-              checked={publishNow}
-              onChange={(e) => setPublishNow(e.target.checked)}
-              disabled={submitting || closing}
-              style={{ width: "15px", height: "15px", cursor: submitting || closing ? "default" : "pointer", accentColor: colors.ember }}
-            />
-            <label
-              htmlFor="publish-now-checkbox"
-              style={{ fontFamily: fonts.body, fontSize: "12px", color: colors.brassBright, cursor: submitting || closing ? "default" : "pointer" }}
-            >
-              Publish immediately — uncheck to save as a draft you can keep editing
-            </label>
-          </div>
-
           {/* Primary action */}
-          <div style={{ padding: "10px 6px 0 6px" }}>
-            <SealButton onClick={closeAndSeal} disabled={submitting || closing || templateStatus !== "ready"}>
-              {submitting || closing
-                ? publishNow
-                  ? "Publishing..."
-                  : "Saving Draft..."
-                : publishNow
-                ? isEditing
-                  ? "Save & Publish"
-                  : "Create & Publish"
-                : "Save as Draft"}
-            </SealButton>
+          <div style={{ padding: "16px 6px 0 6px" }}>
+            {isConfirmPage ? (
+              <SealButton onClick={closeAndSeal} disabled={submitting || closing || templateStatus !== "ready"}>
+                {submitting || closing ? (publishNow ? "Publishing..." : "Saving Draft...") : "Confirm"}
+              </SealButton>
+            ) : (
+              <SealButton onClick={goNext} disabled={flipping || closing || reviewing}>
+                Next
+              </SealButton>
+            )}
           </div>
         </div>
 
