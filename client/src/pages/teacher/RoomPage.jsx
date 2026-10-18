@@ -426,6 +426,12 @@ function RoomPage() {
                                     </button>
                                 </div>
 
+                                {/* The teacher's own entry, with their active icon */}
+                                <div style={{ display: "flex", padding: "10px 0", borderBottom: `1px solid ${colors.vaultBorder}`, alignItems: "center", gap: "10px" }}>
+                                    <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.brassBright, margin: 0 }}>{members?.owner?.name || "You"}</p>
+                                    <ActiveBadge active />
+                                </div>
+
                                 {/* Students list */}
                                 {room?.students?.length === 0 ? (
                                     <p style={{ fontFamily: fonts.body, color: "#B9AC96", fontSize: "13px" }}>No students yet</p>
