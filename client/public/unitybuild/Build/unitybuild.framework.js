@@ -1714,6 +1714,12 @@ function dbg(text) {
       }
     }
 
+  function _ArchivAI_RunFinished(campaignId, saved) {
+          window.dispatchEvent(new CustomEvent("archivai:run-finished", {
+              detail: { campaignId: campaignId, saved: saved === 1 }
+          }));
+      }
+
   function _GetJSLoadTimeInfo(loadTimePtr) {
     loadTimePtr = (loadTimePtr >> 2);
     HEAPU32[loadTimePtr] = Module.pageStartupTime || 0;
@@ -16824,6 +16830,7 @@ function checkIncomingModuleAPI() {
   ignoredModuleProp('fetchSettings');
 }
 var wasmImports = {
+  "ArchivAI_RunFinished": _ArchivAI_RunFinished,
   "GetJSLoadTimeInfo": _GetJSLoadTimeInfo,
   "GetJSMemoryInfo": _GetJSMemoryInfo,
   "JS_Accelerometer_IsRunning": _JS_Accelerometer_IsRunning,

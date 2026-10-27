@@ -83,6 +83,17 @@ function StudentRoomPage() {
         handleReturnToRoom()
     }
 
+    // The game raises this when a run ends. A saved run opens its results page. If the website
+    // could not save it, the player is told and returns to the room.
+    const handleRunFinished = ({ campaignId, saved }) => {
+        if (saved) {
+            navigate(`/results/${campaignId}`, { state: { roomId: id } })
+            return
+        }
+        setPlayError("Your run finished, but the results could not be saved. Check your connection and try again.")
+        handleReturnToRoom()
+    }
+
     if (gameLoading && activeCampaign) {
         const sceneMeta = getSceneMeta(activeCampaign.scene)
         const token = localStorage.getItem("token")
@@ -98,7 +109,7 @@ function StudentRoomPage() {
                     Entering the {sceneMeta.label}...
                 </p>
 
-                <UnityGame token={token} roomId={id} onError={handleGameError} />
+                <UnityGame token={token} roomId={id} onError={handleGameError} onRunFinished={handleRunFinished} />
 
                 <button
                     onClick={handleReturnToRoom}

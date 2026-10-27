@@ -691,7 +691,22 @@ router.get("/campaigns/:id/load", protect, async (req, res) => {
 // teacher or admin) can submit; the user is taken from the token.
 router.post("/campaigns/:id/results", protect, async (req, res) => {
   const campaignId = parseInt(req.params.id);
-  const { totalTime, rank, completedAt, attempts } = req.body;
+  const { totalTime, rank, completedAt, attempts, mistakes, checkpointsReached, checkpointsTotal, locks } = req.body;
+
+  // Counts from the game are kept only if they are whole numbers of 0 or more.
+  const toCount = (value) => (Number.isInteger(value) && value >= 0 ? value : undefined);
+
+  // One entry per lock, keeping only the fields the results page shows.
+  const lockResults = Array.isArray(locks)
+    ? locks.map((l) => ({
+        id: String(l?.id ?? ""),
+        order: toCount(l?.order) ?? 0,
+        type: String(l?.type ?? ""),
+        isSolved: !!l?.isSolved,
+        attempts: toCount(l?.attempts) ?? 0,
+        resets: toCount(l?.resets) ?? 0,
+      }))
+    : undefined;
 
   try {
     const session = await prisma.campaignSession.create({
@@ -701,6 +716,10 @@ router.post("/campaigns/:id/results", protect, async (req, res) => {
         completedAt: completedAt ? new Date(completedAt) : new Date(),
         totalTime,
         rank,
+        mistakes: toCount(mistakes),
+        checkpointsReached: toCount(checkpointsReached),
+        checkpointsTotal: toCount(checkpointsTotal),
+        lockResults,
         attempts: {
           create: (attempts || []).map((a) => ({
             clueId: a.clueId,
@@ -719,6 +738,39 @@ router.post("/campaigns/:id/results", protect, async (req, res) => {
     });
 
     res.status(201).json(session);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Website: The logged-in user's most recent finished run of a campaign, for the results page
+// that opens when the game ends. The user is taken from the token. Answers 404 when the user
+// has no finished run of this campaign yet.
+router.get("/campaigns/:id/results/latest", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const session = await prisma.campaignSession.findFirst({
+      where: { campaignId, studentId: req.user.id, completedAt: { not: null } },
+      orderBy: [{ completedAt: "desc" }, { id: "desc" }],
+      include: { campaign: { select: { title: true, scene: true } } },
+    });
+
+    if (!session) return res.status(404).json({ message: "No finished run found" });
+
+    res.json({
+      id: session.id,
+      campaignId: session.campaignId,
+      campaignTitle: session.campaign.title,
+      scene: session.campaign.scene,
+      completedAt: session.completedAt,
+      totalTime: session.totalTime,
+      rank: session.rank,
+      mistakes: session.mistakes,
+      checkpointsReached: session.checkpointsReached,
+      checkpointsTotal: session.checkpointsTotal,
+      locks: Array.isArray(session.lockResults) ? session.lockResults : [],
+    });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

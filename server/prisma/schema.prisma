@@ -197,6 +197,15 @@ model CampaignSession {
   totalTime   Int?      // in seconds
   rank        String?
 
+  // Sent by the game with the finished run, for the results page.
+  // mistakes is every lock's wrong attempts added up. lockResults is a
+  // JSON list with one entry per lock: { id, order, type, isSolved,
+  // attempts, resets } (attempts = mistakes on that lock).
+  mistakes           Int?
+  checkpointsReached Int?
+  checkpointsTotal   Int?
+  lockResults        Json?
+
   campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   student  User            @relation(fields: [studentId], references: [id])
   attempts SessionAttempt[]

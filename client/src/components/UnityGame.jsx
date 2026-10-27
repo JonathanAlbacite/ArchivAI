@@ -29,7 +29,8 @@ import { useEffect, useRef, useState } from "react"
 //   3. Update BUILD_NAME below to match the actual file names Unity
 //      produced - see the note below, it's NOT your Product Name.
 //   4. Drop <UnityGame token={...} roomId={...} /> wherever the game
-//      should mount - see StudentRoomPage.jsx / RoomPage.jsx.
+//      should mount - see StudentRoomPage.jsx / RoomPage.jsx. Pass
+//      onRunFinished to react when a run ends (it gets { campaignId, saved }).
 //
 // FULLSCREEN - uses the browser's native Fullscreen API on the outer
 // container. The 16:9 "stage" box (canvas + overlays) always keeps that
@@ -59,7 +60,7 @@ const BUILD_FOLDER = "unitybuild"
 // client/public/unitybuild/Build/ if this ever drifts.
 const BUILD_NAME = "unitybuild"
 
-function UnityGame({ token, roomId, onError }) {
+function UnityGame({ token, roomId, onError, onRunFinished }) {
     const canvasRef = useRef(null)
     const containerRef = useRef(null)
     const instanceRef = useRef(null)
@@ -76,6 +77,20 @@ function UnityGame({ token, roomId, onError }) {
         }
         document.addEventListener("fullscreenchange", handleFullscreenChange)
         return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
+    }, [])
+
+    // The game raises the window event "archivai:run-finished" when a run ends (see
+    // RunFinishedPlugin.jslib in the Unity project), with detail { campaignId, saved }.
+    // saved is true when the website accepted the results. The newest onRunFinished is kept
+    // in a ref so the listener is only added once and never goes stale.
+    const onRunFinishedRef = useRef(onRunFinished)
+    useEffect(() => {
+        onRunFinishedRef.current = onRunFinished
+    })
+    useEffect(() => {
+        const handleRunFinished = (event) => onRunFinishedRef.current?.(event.detail)
+        window.addEventListener("archivai:run-finished", handleRunFinished)
+        return () => window.removeEventListener("archivai:run-finished", handleRunFinished)
     }, [])
 
     // Enter-only - see FULLSCREEN above for why there's no exit branch

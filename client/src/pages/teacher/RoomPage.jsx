@@ -282,6 +282,17 @@ function RoomPage() {
         setActiveCampaign(null)
     }
 
+    // The game raises this when a run ends (a teacher's preview run too). A saved run opens its
+    // results page. If the website could not save it, the teacher is told and returns to the room.
+    const handleRunFinished = ({ campaignId, saved }) => {
+        if (saved) {
+            navigate(`/results/${campaignId}`, { state: { roomId: id } })
+            return
+        }
+        alert("The run finished, but the results could not be saved. Check your connection and try again.")
+        handleReturnToRoom()
+    }
+
     // The room's campaign list (from GET /api/rooms/:id) doesn't include
     // clues, so editing needs a fresh fetch of the full campaign first —
     // same endpoint CampaignBookViewer uses, which already returns clues
@@ -356,6 +367,7 @@ function RoomPage() {
                     token={localStorage.getItem("token")}
                     roomId={id}
                     onError={() => alert("Could not load the game - check the browser console for details.")}
+                    onRunFinished={handleRunFinished}
                 />
 
                 <button

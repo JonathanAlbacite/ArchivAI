@@ -13,6 +13,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminVaultEditor from "./pages/admin/AdminVaultEditor";
 import AdminCharacterSets from "./pages/admin/AdminCharacterSets";
 import AdminCharacterCustomization from "./pages/admin/AdminCharacterCustomization";
+import RunResults from "./pages/RunResults";
 
 // Wraps every teacher route so the chat widget mounts once and survives
 // navigation between teacher pages (Messenger-style persistent bubble)
@@ -65,6 +66,7 @@ function App() {
         <Route path="/student/dashboard" element={<StudentDashboard />} />
         <Route path="/student/room/:id" element={<StudentRoomPage />} />
         <Route path="/student/character" element={<StudentCharacterCustomization />} />
+        <Route path="/results/:campaignId" element={<RunResults />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
         <Route path="/admin/vault/:scene" element={<AdminVaultEditor />} />
         <Route path="/admin/character-sets" element={<AdminCharacterSets />} />
