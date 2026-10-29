@@ -1,0 +1,58 @@
+[
+  {
+    "label": "000",
+    "glbFilename": "1791056289443-95107116.glb",
+    "orderNumber": 0,
+    "isBase": true,
+    "slots": [
+      {
+        "slot": "Head",
+        "meshName": "Head",
+        "optionId": "head000"
+      },
+      {
+        "slot": "Body",
+        "meshName": "Body",
+        "optionId": "body000"
+      },
+      {
+        "slot": "Arm",
+        "meshName": "Arm",
+        "optionId": "arm000"
+      },
+      {
+        "slot": "Leg",
+        "meshName": "Leg",
+        "optionId": "leg000"
+      }
+    ]
+  },
+  {
+    "label": "001",
+    "glbFilename": "1791055174398-648299448.glb",
+    "orderNumber": 1,
+    "isBase": false,
+    "slots": [
+      {
+        "slot": "Head",
+        "meshName": "Head2",
+        "optionId": "head001"
+      },
+      {
+        "slot": "Body",
+        "meshName": "Body2",
+        "optionId": "body001"
+      },
+      {
+        "slot": "Arm",
+        "meshName": "Arm2",
+        "optionId": "arm001"
+      },
+      {
+        "slot": "Leg",
+        "meshName": "Leg2",
+        "optionId": "leg001"
+      }
+    ]
+  }
+]

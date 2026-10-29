@@ -4,7 +4,13 @@ import path from "path";
 import fs from "fs/promises";
 import fssync from "fs";
 import prisma from "../lib/prisma.js";
-import { generateText } from "../lib/aiProviderChain.js";
+import {
+  generateCluesForScene,
+  generateStandaloneNotes,
+  getStandaloneNoteCount,
+  validateAnswersForType,
+  normalizeDifficulty,
+} from "../lib/clueTemplates.js";
 import { ALLOWED_EXTENSIONS, extractTextFromFile } from "../lib/documentText.js";
 import { protect, teacherOnly } from "../middleware/auth.js";
 
@@ -34,44 +40,6 @@ const upload = multer({
     cb(null, true);
   },
 });
-
-// A campaign has exactly one realm (chosen by the teacher before conjuring),
-// so every clue in a batch shares that same scene — the model isn't asked
-// to invent it per clue, which is what was scattering clues across realms.
-const buildCluePrompt = (extractedText, scene) => `You are generating escape-room style clues for a classroom activity set entirely in the "${scene}" realm, based on the lesson content below. Every clue must fit that single realm's theme — do not mix in other settings.
-
-Return ONLY a valid JSON array (no markdown, no code fences, no commentary) of 5 to 8 clue objects. Each object must have exactly these fields:
-- "clueText": a string presenting a riddle or question derived from the lesson content, themed to the "${scene}" realm
-- "answerText": a string with the correct answer
-
-Lesson content:
-"""
-${extractedText}
-"""`;
-
-const stripMarkdownFences = (text) =>
-  text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-
-// Parses and validates the Gemini response; returns null if it isn't usable so the caller can retry
-const parseClueResponse = (rawText) => {
-  try {
-    const parsed = JSON.parse(stripMarkdownFences(rawText));
-
-    if (!Array.isArray(parsed) || parsed.length < 5 || parsed.length > 8) return null;
-
-    const isValid = parsed.every(
-      (c) =>
-        typeof c.clueText === "string" &&
-        c.clueText.trim() &&
-        typeof c.answerText === "string" &&
-        c.answerText.trim()
-    );
-
-    return isValid ? parsed : null;
-  } catch {
-    return null;
-  }
-};
 
 // Find a lesson module and confirm the requesting teacher owns it
 const findOwnedLessonModule = async (id, teacherId) => {
@@ -131,7 +99,10 @@ router.post("/lesson-modules/upload", protect, teacherOnly, (req, res) => {
   });
 });
 
-// Teacher: Generate clues from a lesson module's extracted text
+// Teacher: Generate clues from a lesson module's extracted text - one per
+// slot of the scene's published vault template, each of that slot's type
+// (Normal, MultiChoice or Combo), so the result can fill the campaign's
+// pages as they are.
 router.post("/lesson-modules/:id/generate-clues", protect, teacherOnly, async (req, res) => {
   const lessonModuleId = parseInt(req.params.id);
   const scene = VALID_SCENES.find((s) => s.toLowerCase() === (req.body.scene || "").toLowerCase());
@@ -145,26 +116,19 @@ router.post("/lesson-modules/:id/generate-clues", protect, teacherOnly, async (r
     if (!lessonModule.extractedText?.trim())
       return res.status(422).json({ message: "Lesson module has no extracted text to generate clues from" });
 
-    const prompt = buildCluePrompt(lessonModule.extractedText, scene);
+    const generated = await generateCluesForScene(
+      lessonModule.extractedText,
+      scene,
+      `generate-clues (lesson module ${lessonModuleId})`,
+      normalizeDifficulty(req.body.difficulty)
+    );
 
-    let clues;
-    try {
-      const { text: rawText, provider } = await generateText(prompt);
-      console.log(`[lessonModules] generate-clues (lesson module ${lessonModuleId}) answered via ${provider}`);
-      clues = parseClueResponse(rawText);
+    if (generated.error === "no_template") return res.status(422).json({ message: generated.message });
+    if (generated.error === "ai_failed")
+      return res.status(502).json({ message: "AI request failed", error: generated.message });
+    if (generated.error) return res.status(502).json({ message: generated.message });
 
-      if (!clues) {
-        const correctivePrompt = `${prompt}\n\nYour previous response was not a valid JSON array matching the required shape. Respond again with ONLY a valid JSON array, no markdown, no commentary.`;
-        const { text: retryText } = await generateText(correctivePrompt);
-        clues = parseClueResponse(retryText);
-      }
-    } catch (err) {
-      return res.status(502).json({ message: "AI request failed", error: err.message });
-    }
-
-    if (!clues) {
-      return res.status(502).json({ message: "The AI returned malformed JSON after retry" });
-    }
+    const clues = generated.clues;
 
     await prisma.$transaction([
       prisma.generatedClue.createMany({
@@ -172,7 +136,10 @@ router.post("/lesson-modules/:id/generate-clues", protect, teacherOnly, async (r
           lessonModuleId,
           orderNumber: i + 1,
           clueText: c.clueText,
-          answerText: c.answerText,
+          answerText: c.answers.find((a) => a.isCorrect).text,
+          clueType: c.type,
+          answers: c.answers,
+          note: c.note,
           scene,
           status: "pending",
         })),
@@ -189,6 +156,61 @@ router.post("/lesson-modules/:id/generate-clues", protect, teacherOnly, async (r
     });
 
     res.status(201).json(generatedClues);
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Teacher: Generate the additional notes (standalone hints) for a scene from a
+// lesson module's text. How many comes from the scene's published vault
+// template. `clueIds` = the generated clues just made from the same lesson: the
+// notes are written about other facts and never contain their answers or wrong
+// options, so no note points to a question. Nothing is saved here; the campaign
+// editor puts the notes on its last page and they are saved with the campaign.
+router.post("/lesson-modules/:id/generate-notes", protect, teacherOnly, async (req, res) => {
+  const lessonModuleId = parseInt(req.params.id);
+  const scene = VALID_SCENES.find((s) => s.toLowerCase() === (req.body.scene || "").toLowerCase());
+
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+
+  try {
+    const { lessonModule, error, message } = await findOwnedLessonModule(lessonModuleId, req.user.id);
+    if (error) return res.status(error).json({ message });
+
+    if (!lessonModule.extractedText?.trim())
+      return res.status(422).json({ message: "Lesson module has no extracted text to generate notes from" });
+
+    const count = await getStandaloneNoteCount(scene);
+    if (count === 0) return res.json({ notes: [] });
+
+    const clueIds = Array.isArray(req.body.clueIds)
+      ? req.body.clueIds.map((id) => parseInt(id)).filter((id) => Number.isInteger(id))
+      : [];
+    const usedClues = clueIds.length
+      ? await prisma.generatedClue.findMany({ where: { id: { in: clueIds }, lessonModuleId } })
+      : [];
+
+    const avoid = { texts: [], phrases: [] };
+    for (const c of usedClues) {
+      avoid.texts.push(c.clueText);
+      if (c.note) avoid.texts.push(c.note);
+      const options = Array.isArray(c.answers) && c.answers.length ? c.answers : [{ text: c.answerText }];
+      for (const a of options) if (a?.text && !avoid.phrases.includes(a.text)) avoid.phrases.push(a.text);
+    }
+
+    const generated = await generateStandaloneNotes(
+      lessonModule.extractedText,
+      count,
+      avoid,
+      `generate-notes (lesson module ${lessonModuleId})`,
+      normalizeDifficulty(req.body.difficulty)
+    );
+
+    if (generated.error === "ai_failed")
+      return res.status(502).json({ message: "AI request failed", error: generated.message });
+    if (generated.error) return res.status(502).json({ message: generated.message });
+
+    res.json({ notes: generated.notes });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
@@ -216,20 +238,39 @@ router.get("/lesson-modules/:id/clues", protect, teacherOnly, async (req, res) =
 // Teacher: Edit a generated clue
 router.patch("/clues/:id", protect, teacherOnly, async (req, res) => {
   const clueId = parseInt(req.params.id);
-  const { clueText, answerText, scene } = req.body;
+  const { clueText, answerText, answers, note, scene } = req.body;
 
   if (scene && !VALID_SCENES.includes(scene))
     return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
 
   try {
-    const { error, message } = await findOwnedClue(clueId, req.user.id);
+    const { clue, error, message } = await findOwnedClue(clueId, req.user.id);
     if (error) return res.status(error).json({ message });
+
+    // `answers` (every option, correct ones first) replaces the whole list
+    // and must fit the clue's type; answerText is kept as the first correct
+    // answer. A bare answerText edit only applies to Normal clues, where it
+    // is the single answer.
+    let answerData = {};
+    if (answers !== undefined) {
+      const answersError = validateAnswersForType(clue.clueType, answers);
+      if (answersError) return res.status(400).json({ message: answersError });
+
+      const cleaned = answers.map((a) => ({ text: a.text.trim(), isCorrect: !!a.isCorrect }));
+      answerData = { answers: cleaned, answerText: cleaned.find((a) => a.isCorrect).text };
+    } else if (answerText !== undefined) {
+      answerData = {
+        answerText,
+        ...(clue.clueType === "NORMAL" && { answers: [{ text: answerText, isCorrect: true }] }),
+      };
+    }
 
     const updated = await prisma.generatedClue.update({
       where: { id: clueId },
       data: {
         ...(clueText !== undefined && { clueText }),
-        ...(answerText !== undefined && { answerText }),
+        ...(note !== undefined && { note: note ? String(note).trim() || null : null }),
+        ...answerData,
         ...(scene !== undefined && { scene }),
         status: "edited",
       },
@@ -309,17 +350,34 @@ router.post("/campaigns/:id/attach-clues", protect, teacherOnly, async (req, res
 
     const existingCount = await prisma.clue.count({ where: { campaignId } });
 
-    await prisma.clue.createMany({
-      data: generatedClues.map((c, i) => ({
-        campaignId,
-        orderNumber: existingCount + i + 1,
-        question: c.clueText,
-        answer: c.answerText,
-      })),
-    });
+    // Each generated clue keeps the type it was drafted as (Normal,
+    // MultiChoice or Combo) and its full answers list; older rows without
+    // either are plain Normal clues with just answerText. createMany() can't
+    // create nested relations, so each clue is created individually.
+    for (let i = 0; i < generatedClues.length; i++) {
+      const c = generatedClues[i];
+      const answers =
+        Array.isArray(c.answers) && c.answers.length > 0
+          ? c.answers
+          : [{ text: c.answerText, isCorrect: true }];
+
+      await prisma.clue.create({
+        data: {
+          campaignId,
+          orderNumber: existingCount + i + 1,
+          type: c.clueType,
+          question: c.clueText,
+          note: c.note || null,
+          answers: {
+            create: answers.map((a, j) => ({ text: a.text, isCorrect: !!a.isCorrect, order: j })),
+          },
+        },
+      });
+    }
 
     const allClues = await prisma.clue.findMany({
       where: { campaignId },
+      include: { answers: { orderBy: { order: "asc" } } },
       orderBy: { orderNumber: "asc" },
     });
 

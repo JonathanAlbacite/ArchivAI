@@ -1,0 +1,14 @@
+[
+  {
+    "scene": "library",
+    "isPublished": true,
+    "standaloneNoteCount": 10,
+    "slots": [
+      "NORMAL",
+      "NORMAL",
+      "NORMAL",
+      "MULTICHOICE",
+      "MULTICHOICE"
+    ]
+  }
+]

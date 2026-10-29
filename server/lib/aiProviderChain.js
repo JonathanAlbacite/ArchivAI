@@ -74,6 +74,12 @@ console.log(
 // next provider, within a bounded amount of time.
 const REQUEST_TIMEOUT_MS = 20000;
 
+// Clue generation asks for a long answer (a whole array of questions and
+// hints), which the models take longer to write than a chat turn, so it gets
+// a longer ceiling per provider. A real Medium run timed out on two providers
+// at 20 s during a retry and failed the whole request.
+const GENERATION_TIMEOUT_MS = 40000;
+
 class ProviderTimeoutError extends Error {
   constructor(provider, ms) {
     super(`AI provider (${provider}) did not respond within ${ms}ms`);
@@ -107,13 +113,31 @@ const withTimeout = (promise, provider, ms) =>
 // bug in what we're sending, which would fail identically against every
 // provider, so it's surfaced immediately instead of being masked by a
 // fallback that can't actually help.
+//
+// One 400 is treated as retryable despite that: Groq's tool-calling models
+// occasionally emit invalid JSON (or stray text) as a function call's
+// arguments and respond 400 with error.code "tool_use_failed" (groq-sdk's
+// BadRequestError — see node_modules/groq-sdk/core/error.js). That's a
+// per-generation glitch in what THIS provider's model produced, not a
+// malformed request on our end, so — unlike other 400s — the same request
+// plausibly succeeds against the next provider in the chain.
+//
+// A 413 is retryable for the same reason: Groq's free tier caps a request at
+// 8000 tokens per minute (TPM) and answers a bigger one with 413 /
+// error.code "rate_limit_exceeded" ("Request too large"). The teacher chat
+// is what hits it - its history, system prompt and tool definitions together
+// can pass that cap - and a provider with a larger limit can still serve it.
 const isRetryableFailure = (err) => {
   if (err?.isTimeout) return true;
   const status = err?.status;
   const message = err?.message?.toLowerCase() || "";
   if (status === 402 || status === 429 || status === 401 || status === 403 || (status >= 500 && status < 600))
     return true;
+  if (err?.error?.code === "tool_use_failed") return true;
+  if (status === 413 || err?.error?.code === "rate_limit_exceeded" || err?.error?.error?.code === "rate_limit_exceeded")
+    return true;
   if (/\b(402|429|401|403|500|502|503|504)\b/.test(message)) return true;
+  if (/tool_use_failed|failed to parse tool call|rate_limit_exceeded|request too large/.test(message)) return true;
   return /rate limit|too many requests|invalid api key|api key not valid|unauthorized|payment required|quota|fetch failed|econnreset|etimedout|network/.test(
     message
   );
@@ -125,13 +149,13 @@ const isRetryableFailure = (err) => {
 // provider actually answered (for server-side logging only — this is never
 // shown to the teacher). Throws a single, clear error only once every
 // provider in the chain has been tried and failed.
-const runChain = async (attempt) => {
+const runChain = async (attempt, timeoutMs = REQUEST_TIMEOUT_MS) => {
   let lastErr;
 
   for (const provider of availableProviders) {
     const client = clients[provider];
     try {
-      const result = await withTimeout(attempt(client), provider, REQUEST_TIMEOUT_MS);
+      const result = await withTimeout(attempt(client), provider, timeoutMs);
       return { ...result, provider };
     } catch (err) {
       lastErr = err;
@@ -153,7 +177,23 @@ const runChain = async (attempt) => {
 // Plain single-turn text generation (no tools) — used for clue generation
 // (teacherChatTools.js's generate_clues_from_notes tool, and the standalone
 // /lesson-modules/:id/generate-clues route). Returns { text, provider }.
-export const generateText = (prompt) => runChain((client) => client.generateText(prompt).then((text) => ({ text })));
+//
+// A provider that answers with an empty reply counts as failed, so the chain
+// moves on to the next provider instead of returning nothing (an empty reply was
+// seen from OpenRouter after two timeouts).
+export const generateText = (prompt) =>
+  runChain(
+    (client) =>
+      client.generateText(prompt).then((text) => {
+        if (!String(text ?? "").trim()) {
+          const err = new Error("empty reply");
+          err.status = 502;
+          throw err;
+        }
+        return { text };
+      }),
+    GENERATION_TIMEOUT_MS
+  );
 
 // One turn of the teacher chatbot's tool-calling loop (see routes/chat.js).
 // `messages` is the neutral message history ({role, content, functionCall?}),

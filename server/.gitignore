@@ -4,5 +4,8 @@ node_modules
 
 /generated/prisma
 
-# Uploaded lesson module files
-/uploads
+# Uploaded lesson module files - private teacher documents, never committed. Character-set .glb
+# uploads are the one exception: those need to be in git for the Admin's catalog to be portable
+# across machines (see server/prisma/characterSetsSeed.json and scripts/seedCharacterSets.js).
+/uploads/*
+!/uploads/character-sets

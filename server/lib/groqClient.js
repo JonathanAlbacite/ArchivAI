@@ -20,12 +20,27 @@ const groq = new Groq({ apiKey });
 const MODEL = "openai/gpt-oss-120b";
 
 // Plain single-turn text generation (no tools) — used for clue generation.
+//
+// This model "thinks" before it answers, and the thinking counts against the
+// reply's token limit, so a long answer (the Medium/Hard clue sets) was being
+// cut off before its closing "]". Low reasoning effort keeps the thinking
+// short, and an explicit limit leaves room for the whole JSON array (the
+// free tier's per-minute cap counts this limit too, so it stays moderate).
+const CLUE_REPLY_MAX_TOKENS = 4096;
+
 export const generateText = async (prompt) => {
   const completion = await groq.chat.completions.create({
     model: MODEL,
     messages: [{ role: "user", content: prompt }],
+    reasoning_effort: "low",
+    max_completion_tokens: CLUE_REPLY_MAX_TOKENS,
   });
-  return completion.choices[0]?.message?.content || "";
+
+  const choice = completion.choices[0];
+  if (choice?.finish_reason === "length") {
+    console.warn(`[groqClient] generateText hit the ${CLUE_REPLY_MAX_TOKENS}-token reply limit - the answer is cut off`);
+  }
+  return choice?.message?.content || "";
 };
 
 // Groq's tool schema is standard JSON Schema; Gemini's SchemaType values are

@@ -1,5 +1,85 @@
 # Archivist Legacy — API Documentation & Unity Integration Guide
 
+## Getting Started (cloning this repo on a new machine)
+
+This repo holds two independent Node projects, each with its own `package.json` and `.env`:
+- `server/` — Express + Prisma + MySQL
+- `client/` — React + Vite
+
+### 0. Git LFS (first time on a machine, or first time cloning)
+
+This repo tracks its large binary files - the Unity WebGL build's `.wasm`/`.data` files, and the character customization `.glb` models under `server/uploads/character-sets/` - with [Git LFS](https://git-lfs.com) instead of storing them directly in git, since git itself handles large binary files poorly and most git hosts reject or warn on files much past 50-100MB. The rules for which files this applies to are already in `.gitattributes` - nothing to configure.
+
+Install Git LFS once per machine, then run this once per machine too (it's safe to run again if unsure whether it's already been done):
+```
+git lfs install
+```
+
+If Git LFS wasn't installed yet when you cloned the repo, the `.glb`/`.wasm`/`.data` files you have locally are just small pointer stubs, not the real files. Fix that with:
+```
+git lfs pull
+```
+
+### 1. Install dependencies
+
+```
+cd server && npm install
+cd ../client && npm install
+```
+
+### 2. Create the two `.env` files
+
+Neither is committed to git (see each project's `.gitignore`), so both need to be created by hand.
+
+`server/.env`:
+```
+DATABASE_URL="mysql://<user>:<password>@localhost:3306/archivist_ai"
+JWT_SECRET="<any random string>"
+AI_PROVIDER=groq
+GROQ_API_KEY=<your own key>
+GEMINI_API_KEY=<your own key>
+```
+`AI_PROVIDER` picks which AI backend the teacher chat assistant and clue-generation feature use (`groq` or `gemini`) — only the matching key below it is required.
+
+`client/.env`:
+```
+VITE_API_URL=http://localhost:3000
+```
+
+### 3. Create the database schema
+
+```
+cd server
+npx prisma migrate deploy
+```
+This only creates the tables — no data yet.
+
+### 4. Start the server
+
+```
+npm run dev
+```
+
+The server seeds itself automatically on every startup, so this one command is also the setup step — no separate seed command is needed on a fresh clone. On first boot it creates:
+- the admin login (`fergusjerome@archivist.admin` / `password`)
+- the published vault question-sets (from `prisma/vaultTemplatesSeed.json`)
+- the character customization catalog — Base, Pirate, Woman, and anything else added since (from `prisma/characterSetsSeed.json`; their `.glb` model files live under `server/uploads/character-sets/` and are committed to git alongside that JSON, so nothing needs to be re-uploaded)
+
+All three are safe to re-run — they update existing rows rather than duplicating them, so restarting the server repeatedly never creates duplicates. To re-run them by hand without restarting the server (for example after hand-editing one of the seed JSON files), run `npm run seed` from `server/`.
+
+### 5. Start the client
+
+```
+cd client
+npm run dev
+```
+
+### What does NOT come back automatically
+
+Ordinary runtime data — rooms, campaigns, clues, and any individual student's saved character loadout — is real gameplay data, not admin-authored catalog data, so it is deliberately never seeded. A fresh database starts with none of it, same as any brand-new deployment would. Only the admin login, vault templates, and character sets are treated as setup data, since those are what an admin configures once through the Admin dashboard and expects to carry over to any machine running this code.
+
+---
+
 ## Live URLs
 
 | Service | URL |

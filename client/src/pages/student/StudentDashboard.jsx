@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Compass, Sparkles } from 'lucide-react'
+import { Compass, Sparkles, Palette } from 'lucide-react'
 import Navbar from '../../components/Navbar'
 import EmberField from '../../components/EmberField'
 import dashboard_bg from '../../assets/dashboard_bg.png'
@@ -90,12 +90,20 @@ function StudentDashboard() {
                                 <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "32px", color: colors.ink, margin: 0 }}>My Rooms</h1>
                                 <p style={{ color: colors.inkMuted, fontFamily: fonts.body, fontSize: "14px", margin: "6px 0 0 0" }}>Rooms you are enrolled in</p>
                             </div>
-                            <button
-                                onClick={() => setShowJoinModal(true)}
-                                style={{ display: "flex", alignItems: "center", gap: "8px", background: `linear-gradient(160deg, ${colors.magicVioletBright}, ${colors.magicViolet})`, color: "#FFFFFF", border: "none", borderRadius: "18px", padding: "12px 24px", fontFamily: fonts.body, fontWeight: "600", fontSize: "16px", cursor: "pointer" }}
-                            >
-                                <Sparkles size={16} /> Join Room
-                            </button>
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                <button
+                                    onClick={() => navigate("/student/character")}
+                                    style={{ display: "flex", alignItems: "center", gap: "8px", background: "transparent", color: colors.magicViolet, border: `1px solid ${colors.magicViolet}`, borderRadius: "18px", padding: "12px 24px", fontFamily: fonts.body, fontWeight: "600", fontSize: "16px", cursor: "pointer" }}
+                                >
+                                    <Palette size={16} /> Customize Character
+                                </button>
+                                <button
+                                    onClick={() => setShowJoinModal(true)}
+                                    style={{ display: "flex", alignItems: "center", gap: "8px", background: `linear-gradient(160deg, ${colors.magicVioletBright}, ${colors.magicViolet})`, color: "#FFFFFF", border: "none", borderRadius: "18px", padding: "12px 24px", fontFamily: fonts.body, fontWeight: "600", fontSize: "16px", cursor: "pointer" }}
+                                >
+                                    <Sparkles size={16} /> Join Room
+                                </button>
+                            </div>
                         </div>
 
                         {/* Room cards grid */}

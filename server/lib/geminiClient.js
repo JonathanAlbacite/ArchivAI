@@ -32,6 +32,15 @@ export const generateText = async (prompt) => {
 // carry back the same thoughtSignature it was issued with, so that's bundled
 // into the stored functionCall JSON alongside {name, args, id} and split back
 // out here.
+//
+// A functionCall that Gemini did NOT issue - one made by Groq or OpenRouter
+// earlier in the same conversation, since the fallback chain can switch
+// provider between turns - has no signature to send back, and Gemini would
+// 400 it ("Function call is missing a thought_signature"). Google's
+// documented placeholder for exactly that case (history from another model)
+// is used instead, which turns the check off for that part.
+const FOREIGN_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
+
 const toGeminiContents = (messages) =>
   messages.map((m) => {
     if (m.role === "function") {
@@ -42,7 +51,7 @@ const toGeminiContents = (messages) =>
       const { thoughtSignature, ...functionCall } = m.functionCall;
       const parts = [];
       if (m.content) parts.push({ text: m.content });
-      parts.push({ functionCall, ...(thoughtSignature ? { thoughtSignature } : {}) });
+      parts.push({ functionCall, thoughtSignature: thoughtSignature || FOREIGN_THOUGHT_SIGNATURE });
       return { role: "model", parts };
     }
     return { role: m.role, parts: [{ text: m.content }] };

@@ -12,14 +12,21 @@ model User {
   name      String
   email     String   @unique
   password  String
-  role      String   // "teacher" or "student"
+  role      String   // "TEACHER", "STUDENT", or "ADMIN"
   createdAt DateTime @default(now())
+
+  // Last time the website reported this user as present (login, then a short
+  // heartbeat while a page is open). A member counts as "active" when this is
+  // recent - see the room members list in routes/rooms.js.
+  lastActiveAt DateTime?
 
   taughtRooms       Room[]             @relation("TeacherRooms")
   enrolledRooms     RoomStudent[]
   sessions          CampaignSession[]
+  campaignProgress  CampaignProgress[]
   lessonModules     LessonModule[]
   chatConversations ChatConversation[]
+  characterLoadout  CharacterLoadout?
 }
 
 model Room {
@@ -30,14 +37,21 @@ model Room {
   teacherId   Int
   createdAt   DateTime @default(now())
 
+  // Which campaign in this room is currently "live" for Play - set by
+  // either the teacher or a student clicking Play, read by Unity (and
+  // the client) to know which campaign to load. Nullable since a room
+  // may have no active campaign yet.
+  activeCampaignId Int?
+  activeCampaign   Campaign?     @relation("RoomActiveCampaign", fields: [activeCampaignId], references: [id])
+
   teacher   User          @relation("TeacherRooms", fields: [teacherId], references: [id])
   students  RoomStudent[]
-  campaigns Campaign[]
+  campaigns Campaign[]    @relation("RoomCampaigns")
 }
 
 model RoomStudent {
   id        Int      @id @default(autoincrement())
-  room      Room     @relation(fields: [roomId], references: [id])
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   roomId    Int
   student   User     @relation(fields: [studentId], references: [id])
   studentId Int
@@ -56,20 +70,122 @@ model Campaign {
   isPublished Boolean  @default(false)
   createdAt   DateTime @default(now())
 
-  room     Room              @relation(fields: [roomId], references: [id])
+  // A single resource file the teacher can attach (e.g. a handout or
+  // reference PDF) that students can view/download alongside the campaign.
+  // Nullable trio rather than a separate table — one file per campaign is
+  // all the teacher-facing UI supports (see SpellBookModal.jsx).
+  attachmentFilename String?
+  attachmentPath     String?
+  attachmentMimeType String?
+
+  room     Room              @relation("RoomCampaigns", fields: [roomId], references: [id], onDelete: Cascade)
   clues    Clue[]
+  // Additional notes: trivia from the lesson that belong to no question
+  // (see StandaloneNote below).
+  standaloneNotes StandaloneNote[]
   sessions CampaignSession[]
+  progress CampaignProgress[]
+
+  // Opposite side of Room.activeCampaign - rooms currently pointing at
+  // this campaign as their "live" one. A campaign can be the active
+  // campaign for more than one room at once, hence the array.
+  activeForRooms Room[] @relation("RoomActiveCampaign")
+}
+
+// Which Question/Clue/Answer/Note "pairing" shape a Clue was authored
+// as - drives how many answers it should have and how many of those
+// are marked correct. See ClueAnswer below for where the actual answer
+// options live. A campaign's clues must match, in order, the ClueType
+// sequence of its scene's published VaultTemplate - see TemplateSlot.
+//   NORMAL      - exactly 1 answer, marked correct. No decoys.
+//   MULTICHOICE - exactly 4 answers: 1 marked correct, 3 decoys.
+//   COMBO       - 1+ answers marked correct (a combination lock - the
+//                 player must pick every one), plus any number of
+//                 decoys. Both lists are extendable - no fixed count.
+enum ClueType {
+  NORMAL
+  MULTICHOICE
+  COMBO
 }
 
 model Clue {
+  id          Int      @id @default(autoincrement())
+  campaignId  Int
+  orderNumber Int
+  type        ClueType @default(NORMAL)
+  // Doubles as the in-game Clue text, not just what the lock asks - no
+  // separate clue/hint field. Note (below) stays fully independent of
+  // this.
+  question    String
+  // Free-text Note content shown in the Journal's Note panel.
+  note        String?
+
+  campaign Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  answers  ClueAnswer[]
+  attempts SessionAttempt[]
+}
+
+// An additional note: a short fact from the lesson that belongs to no
+// question and no answer. It is shown on the last page of the campaign
+// editor and sent to the game as a Standalone Note (the game reads them by
+// position: orderNumber 1 is text000). How many a campaign has is set by its
+// vault's template (VaultTemplate.standaloneNoteCount).
+model StandaloneNote {
   id          Int    @id @default(autoincrement())
   campaignId  Int
   orderNumber Int
-  question    String
-  answer      String
+  text        String @db.Text
 
-  campaign Campaign        @relation(fields: [campaignId], references: [id])
-  attempts SessionAttempt[]
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+// One answer OPTION for a Clue - correct or decoy. A flat, ordered list
+// per Clue rather than a single string column, so NORMAL/MULTICHOICE/
+// COMBO can all share the same shape: NORMAL has exactly one row
+// (isCorrect: true), MULTICHOICE has exactly four (one isCorrect: true,
+// three false), COMBO has any number of either. Mirrors Unity's own
+// CampaignEntry.AnswerOption list exactly, so CampaignAPIClient can map
+// this straight across.
+model ClueAnswer {
+  id        Int     @id @default(autoincrement())
+  clueId    Int
+  text      String
+  isCorrect Boolean @default(false)
+  // Preserves the order answers were entered/should be displayed in -
+  // findMany() calls elsewhere always orderBy this field.
+  order     Int     @default(0)
+
+  clue Clue @relation(fields: [clueId], references: [id], onDelete: Cascade)
+}
+
+// Admin-authored, per-scene question structure. Once published, this is
+// the fixed sequence of clue slots (see TemplateSlot) every campaign
+// created in that scene must follow - teachers fill in the content, they
+// don't choose the shape themselves. One row per scene ("Laboratory",
+// "Library", "Tomb" - matches VALID_SCENES in lessonModules.js).
+model VaultTemplate {
+  id          Int      @id @default(autoincrement())
+  scene       String   @unique
+  isPublished Boolean  @default(false)
+  // How many additional notes (standalone hints) a campaign in this vault
+  // must have. Set by the admin; 0 means the vault has none.
+  standaloneNoteCount Int @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  slots TemplateSlot[]
+}
+
+// One slot in a VaultTemplate's ordered structure - just a position and
+// a ClueType. No question/answer content lives here; that's authored per
+// campaign by the teacher, in the shape this slot dictates.
+model TemplateSlot {
+  id          Int      @id @default(autoincrement())
+  templateId  Int
+  orderNumber Int
+  type        ClueType
+
+  template VaultTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 }
 
 model CampaignSession {
@@ -81,9 +197,39 @@ model CampaignSession {
   totalTime   Int?      // in seconds
   rank        String?
 
-  campaign Campaign        @relation(fields: [campaignId], references: [id])
+  // Sent by the game with the finished run, for the results page.
+  // mistakes is every lock's wrong attempts added up. lockResults is a
+  // JSON list with one entry per lock: { id, order, type, isSolved,
+  // attempts, resets } (attempts = mistakes on that lock).
+  mistakes           Int?
+  checkpointsReached Int?
+  checkpointsTotal   Int?
+  lockResults        Json?
+
+  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   student  User            @relation(fields: [studentId], references: [id])
   attempts SessionAttempt[]
+}
+
+// Where a student currently is in a campaign. One row per student per campaign, updated each
+// time the game reaches a checkpoint, so progress survives closing the game or switching
+// devices. Unlike CampaignSession (created only when a run is finished), this row exists while
+// the run is still going. No position is stored - the game finds the player's spot from the
+// checkpoint id.
+model CampaignProgress {
+  id                   Int      @id @default(autoincrement())
+  campaignId           Int
+  studentId            Int
+  lastCheckpointId     String?
+  reachedCheckpointIds Json
+  status               String   @default("IN_PROGRESS") // "IN_PROGRESS" or "COMPLETED"
+  startedAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  student  User     @relation(fields: [studentId], references: [id])
+
+  @@unique([campaignId, studentId])
 }
 
 model LessonModule {
@@ -107,7 +253,19 @@ model GeneratedClue {
   lessonModuleId Int
   orderNumber    Int
   clueText       String   @db.Text
-  answerText     String
+  answerText     String   // the (first) correct answer - always set, whatever the clueType
+  // Which Question/Answer shape this was drafted as - one per slot of the
+  // scene's published VaultTemplate, so it can fill the matching page
+  // (see ClueType above and lessonModules.js).
+  clueType       ClueType @default(NORMAL)
+  // Every answer option as [{ text, isCorrect }] - the correct answer(s)
+  // first, then the decoys. Null on clues generated before clueType existed
+  // (those are plain Normal clues: just answerText).
+  answers        Json?
+  // The question's hint: a short note copied from the lesson document that
+  // contains the answer. It becomes the Clue's note (see Clue.note) when the
+  // clue is used. Null on clues generated before hints existed.
+  note           String?  @db.Text
   scene          String   // "Laboratory" | "Library" | "Tomb"
   status         String   @default("pending") // "pending" | "edited" | "approved" | "rejected"
   createdAt      DateTime @default(now())
@@ -143,6 +301,75 @@ model SessionAttempt {
   attempts  Int     @default(0)
   isSolved  Boolean @default(false)
 
-  session CampaignSession @relation(fields: [sessionId], references: [id])
-  clue    Clue            @relation(fields: [clueId], references: [id])
+  session CampaignSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  clue    Clue            @relation(fields: [clueId], references: [id], onDelete: Cascade)
+}
+
+// One row per user - the character's currently selected part for each of the 4 fixed body slots
+// (Head/Body/Arm/Leg), matching Unity's own CharacterPartRegistryAsset.BodyPartSlot enum and
+// CharacterCustomizationController's CharacterLoadout/PartSelection shape exactly (see the game
+// repo's character-customization.md doc).
+//
+// DELIBERATELY DOES NOT STORE THE PART CATALOG ITSELF - no display names, no mesh/material
+// references, nothing about what these options actually ARE. CharacterPartRegistryAsset inside the
+// Unity project is the single source of truth for that, and the actual picking UI (the Previous/
+// Next buttons) runs inside the embedded Unity customization scene, not on this website - so this
+// table only ever needs to remember the RESULT of that picking, per account, to hand back to Unity
+// via CharacterCustomizationWebBridge.ApplyLoadoutJson() (as JSON: {"parts":[{"slot":"Head",
+// "optionId":"head002"}, ...]}) the next time this user plays.
+// Admin-authored, extensible catalog of character models for the website's Customize Character
+// scene (see CharacterCustomizer3D.jsx) - one row per uploaded GLB. Unlike VaultTemplate, nothing
+// here gates what a teacher/student can do; it's purely the picker's data source, so adding a new
+// option is an admin upload instead of a code change + deploy. orderNumber's lowest value is
+// always the one shown before any customization (matches "base.glb" being first today) - that
+// first set is the "base" look, and renumberOptionIds() in routes/characterSets.js automatically
+// gives its slots the "000" optionIds (head000, body000, ...). Unity's own registry is 1-indexed
+// (its first real option is "head001"), so "000" never matches anything there and Unity leaves
+// that part showing the character prefab's own default mesh.
+model CharacterSet {
+  id          Int      @id @default(autoincrement())
+  label       String // shown in the picker, e.g. "Pirate", "Woman", "Robot"
+  glbFilename String @unique // served from server's /uploads/character-sets/<this> - see routes/characterSets.js
+  orderNumber Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  slots CharacterSetSlot[]
+}
+
+// One body-part mapping for a CharacterSet, e.g. { slot: "Head", meshName: "Head2" }. meshName is
+// the exact node name found inside that set's GLB - admin-assigned at upload time from whatever
+// names the file actually contains (sets aren't guaranteed to follow any naming convention, see
+// character-customization project notes). optionId is the stable string handed to
+// CharacterLoadout/CharacterCustomizationWebBridge/Unity's own registry - once created it never
+// changes, even if the set's label or order does, since a student's saved loadout refers to it.
+model CharacterSetSlot {
+  id             Int    @id @default(autoincrement())
+  characterSetId Int
+  slot           String // "Head" | "Body" | "Arm" | "Leg" - matches Unity's BodyPartSlot names
+  meshName       String
+  optionId       String @unique
+
+  characterSet CharacterSet @relation(fields: [characterSetId], references: [id], onDelete: Cascade)
+
+  @@unique([characterSetId, slot])
+}
+
+model CharacterLoadout {
+  id     Int @id @default(autoincrement())
+  userId Int @unique
+
+  // Each matches a PartOption.id from Unity's CharacterPartRegistryAsset for that slot (e.g.
+  // "head002") - plain strings, not validated against the Registry here, since this server has no
+  // way to know what IDs currently exist in the Unity project's own asset. Nullable so a user who
+  // hasn't customized a given slot yet just falls back to whatever the character prefab starts
+  // with, rather than needing a placeholder value.
+  headOptionId String?
+  bodyOptionId String?
+  armOptionId  String?
+  legOptionId  String?
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
 }

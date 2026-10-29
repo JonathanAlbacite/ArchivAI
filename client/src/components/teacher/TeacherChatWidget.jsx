@@ -130,6 +130,14 @@ const TypingIndicator = () => (
   </div>
 );
 
+// The difficulty levels offered when a lesson document is attached (the
+// server's lib/clueTemplates.js words the questions and hints for each one).
+const DIFFICULTY_OPTIONS = [
+  { value: "easy", label: "Easy", hint: "Direct questions in the document's own words" },
+  { value: "medium", label: "Medium", hint: "Reworded questions, hints with related facts" },
+  { value: "hard", label: "Hard", hint: "Questions that describe the answer, longer reworded hints" },
+];
+
 const STORAGE_KEY = "archivai_chat_conv_id";
 const ALLOWED_UPLOAD_EXTENSIONS = ".pdf,.docx,.doc,.txt";
 const ALLOWED_UPLOAD_EXTENSIONS_LIST = ALLOWED_UPLOAD_EXTENSIONS.split(",");
@@ -215,7 +223,7 @@ function TeacherChatWidget() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [attachment, setAttachment] = useState(null); // { lessonModuleId, filename }
+  const [attachment, setAttachment] = useState(null); // { lessonModuleId, filename, source? } - source "spellbook" = uploaded in the Spell Book
   const [stagingFile, setStagingFile] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
@@ -226,7 +234,7 @@ function TeacherChatWidget() {
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, open]);
+  }, [messages, open, attachment]);
 
   // Re-measure and grow/shrink the textarea to fit its content on every
   // keystroke (and when a send clears it back to empty).
@@ -269,6 +277,23 @@ function TeacherChatWidget() {
     })();
   }, []);
 
+  // The Spell Book's "Generate Clues from a Lesson" uploads the file itself,
+  // then asks this chat to open with that file attached so the difficulty
+  // buttons below can be used (see SpellBookModal).
+  useEffect(() => {
+    const handleOpenChat = (e) => {
+      const { lessonModuleId, filename } = e.detail || {};
+      if (!lessonModuleId) return;
+
+      setAttachment({ lessonModuleId, filename, source: "spellbook" });
+      setError("");
+      setOpen(true);
+    };
+
+    window.addEventListener("archivai:open-chat", handleOpenChat);
+    return () => window.removeEventListener("archivai:open-chat", handleOpenChat);
+  }, []);
+
   const ensureConversation = async () => {
     if (conversationId) return conversationId;
 
@@ -284,14 +309,41 @@ function TeacherChatWidget() {
     return data.conversationId;
   };
 
-  const sendMessage = async () => {
-    const text = input.trim();
-    if ((!text && !attachment) || busy) return;
+  // A lesson document always travels with a difficulty. The chosen level goes
+  // into the message as a "Difficulty: Hard" line, which the assistant reads
+  // (see the system prompt in server/routes/chat.js).
+  const submit = async (difficulty) => {
+    const typed = input.trim();
+    if ((!typed && !attachment) || busy) return;
+
+    if (attachment && !difficulty) {
+      setError("Choose Easy, Medium or Hard first.");
+      return;
+    }
+
+    const difficultyLabel = DIFFICULTY_OPTIONS.find((o) => o.value === difficulty)?.label;
+    const text = difficultyLabel ? `Difficulty: ${difficultyLabel}${typed ? `\n\n${typed}` : ""}` : typed;
 
     const sentAttachment = attachment;
     setInput("");
     setAttachment(null);
     setError("");
+
+    // Uploaded in the Spell Book: the Spell Book drafts the clues itself, so
+    // this chat only reports the chosen difficulty back to it.
+    if (sentAttachment?.source === "spellbook") {
+      setMessages((m) => [
+        ...m,
+        { role: "user", content: `📎 Uploaded: ${sentAttachment.filename}\n\n${text}` },
+        { role: "model", content: `Drafting ${difficultyLabel} questions for the Spell Book. They will appear in its review list.` },
+      ]);
+      window.dispatchEvent(
+        new CustomEvent("archivai:difficulty-chosen", {
+          detail: { lessonModuleId: sentAttachment.lessonModuleId, difficulty },
+        })
+      );
+      return;
+    }
 
     const displayContent = sentAttachment
       ? `📎 Uploaded: ${sentAttachment.filename}${text ? `\n\n${text}` : ""}`
@@ -325,11 +377,13 @@ function TeacherChatWidget() {
     }
   };
 
+  const sendMessage = () => submit(null);
+
   // Uploads a lesson document and extracts its text (reusing the same
   // lesson-modules upload the standalone lesson-module flow uses), then
   // stages it as a removable chip in the input area. Nothing is sent to the
-  // assistant until the teacher hits send (see sendMessage) — matching how
-  // file attachments work in Claude's/ChatGPT's chat inputs.
+  // assistant until the teacher picks Easy, Medium or Hard (see submit), which
+  // sends the file along with that difficulty.
   const stageFile = async (file) => {
     if (!file || busy || stagingFile) return;
 
@@ -479,7 +533,9 @@ function TeacherChatWidget() {
             overflow: "hidden",
             border: `1px solid ${colors.glassBorder}`,
             boxShadow: `0 20px 60px rgba(0,0,0,0.55), 0 0 40px ${colors.glassGlow}, inset 0 1px 0 rgba(255,255,255,0.08)`,
-            zIndex: 998,
+            // Above the Spell Book modal (z-index 999), which opens this chat
+            // to ask for the difficulty.
+            zIndex: 1000,
           }}
         >
           {dragActive && (
@@ -562,7 +618,7 @@ function TeacherChatWidget() {
               WebkitBackdropFilter: "blur(16px)",
             }}
           >
-            {messages.length === 0 && (
+            {messages.length === 0 && !attachment && (
               <div style={{ margin: "auto", display: "flex", flexDirection: "column", alignItems: "center", gap: "14px", padding: "0 20px" }}>
                 {!loadingHistory && <AssistantAvatar size={44} />}
                 <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.inkMuted, textAlign: "center", lineHeight: 1.55, margin: 0 }}>
@@ -693,6 +749,59 @@ function TeacherChatWidget() {
                 </div>
               );
             })}
+
+            {attachment && !stagingFile && !busy && (
+              <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", marginTop: messages.length === 0 ? 0 : "18px" }}>
+                <div style={{ width: "26px", flexShrink: 0 }}>
+                  <AssistantAvatar size={26} />
+                </div>
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    paddingTop: "3px",
+                    color: colors.ink,
+                    fontFamily: fonts.body,
+                    fontSize: "14px",
+                    lineHeight: 1.6,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <p style={{ margin: "0 0 8px 0" }}>
+                    Which difficulty should the questions from <strong>{attachment.filename}</strong> be?
+                  </p>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    {DIFFICULTY_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => submit(option.value)}
+                        disabled={busy}
+                        title={option.hint}
+                        style={{
+                          flex: 1,
+                          padding: "9px 10px",
+                          borderRadius: "10px",
+                          border: `1px solid ${colors.ember}`,
+                          backgroundColor: "transparent",
+                          color: colors.ember,
+                          fontFamily: fonts.body,
+                          fontSize: "13px",
+                          fontWeight: "600",
+                          cursor: busy ? "default" : "pointer",
+                          opacity: busy ? 0.6 : 1,
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ margin: "8px 0 0 0", fontSize: "11px", color: colors.inkMuted, lineHeight: 1.45 }}>
+                    Easy: direct questions in the document's own words. Medium: reworded questions. Hard: questions that describe the answer, with longer reworded hints.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {busy && (
               <div style={{ display: "flex", gap: "10px", alignItems: "center", marginTop: messages.length === 0 ? 0 : "18px" }}>

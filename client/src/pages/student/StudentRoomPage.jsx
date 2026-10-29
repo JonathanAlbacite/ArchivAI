@@ -1,20 +1,27 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { Wand2, ArrowLeft } from 'lucide-react'
+import { Wand2, ArrowLeft, Paperclip, Eye } from 'lucide-react'
 import dashboard_bg from '../../assets/dashboard_bg.png'
 import Navbar from '../../components/Navbar'
 import EmberField from '../../components/EmberField'
 import PortalTransition from '../../components/PortalTransition'
+import UnityGame from '../../components/UnityGame'
 import { SceneBadge, SceneIcon } from '../../components/SceneIcon'
 import { getSceneMeta } from '../../scenes'
+import ActiveBadge from '../../components/ActiveBadge'
+import useRoomMembers from '../../lib/useRoomMembers'
 import { colors, fonts } from '../../theme'
+import AttachmentPreviewModal from '../../components/AttachmentPreviewModal'
 
 function StudentRoomPage() {
     const { id } = useParams()
     const [room, setRoom] = useState(null)
+    const members = useRoomMembers(id)
     const [portalActive, setPortalActive] = useState(false)
     const [gameLoading, setGameLoading] = useState(false)
     const [activeCampaign, setActiveCampaign] = useState(null)
+    const [playError, setPlayError] = useState(null)
+    const [previewCampaign, setPreviewCampaign] = useState(null)
     const navigate = useNavigate()
 
     const fetchRoom = async () => {
@@ -30,9 +37,35 @@ function StudentRoomPage() {
         fetchRoom()
     }, [id])
 
-    const handlePlay = (campaign) => {
-        setActiveCampaign(campaign)
-        setPortalActive(true)
+    // Marks this room's active campaign server-side BEFORE the game mounts -
+    // Unity only ever receives {token, roomId} (see UnityGame.jsx), then
+    // asks the API which campaign is currently active for that room. If
+    // that PATCH fails, the portal never starts and the player never sees
+    // a game that would just fail to find a campaign to load.
+    const handlePlay = async (campaign) => {
+        setPlayError(null)
+        const token = localStorage.getItem("token")
+
+        try {
+            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/rooms/${id}/active-campaign`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`,
+                },
+                body: JSON.stringify({ campaignId: campaign.id }),
+            })
+
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}))
+                throw new Error(data.message || "Could not start this campaign")
+            }
+
+            setActiveCampaign(campaign)
+            setPortalActive(true)
+        } catch (err) {
+            setPlayError(err.message)
+        }
     }
 
     const handlePortalComplete = () => {
@@ -45,8 +78,25 @@ function StudentRoomPage() {
         setActiveCampaign(null)
     }
 
+    const handleGameError = () => {
+        setPlayError("The game failed to load. Check your connection and try again.")
+        handleReturnToRoom()
+    }
+
+    // The game raises this when a run ends. A saved run opens its results page. If the website
+    // could not save it, the player is told and returns to the room.
+    const handleRunFinished = ({ campaignId, saved }) => {
+        if (saved) {
+            navigate(`/results/${campaignId}`, { state: { roomId: id } })
+            return
+        }
+        setPlayError("Your run finished, but the results could not be saved. Check your connection and try again.")
+        handleReturnToRoom()
+    }
+
     if (gameLoading && activeCampaign) {
         const sceneMeta = getSceneMeta(activeCampaign.scene)
+        const token = localStorage.getItem("token")
         return (
             <div style={{ position: "fixed", inset: 0, backgroundColor: colors.obsidianDeep, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
                 <div style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 40%, ${sceneMeta.color}33, transparent 60%)`, pointerEvents: "none" }} />
@@ -55,18 +105,15 @@ function StudentRoomPage() {
                 <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "28px", color: colors.softGold, margin: "20px 0 6px 0", textAlign: "center" }}>
                     {activeCampaign.title}
                 </h1>
-                <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.brassBright, opacity: 0.85, margin: "0 0 28px 0" }}>
+                <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.brassBright, opacity: 0.85, margin: "0 0 20px 0" }}>
                     Entering the {sceneMeta.label}...
                 </p>
 
-                {/* Unity WebGL build mounts here once exported (see /public and index.js loader) */}
-                <div style={{ width: "260px", height: "6px", borderRadius: "6px", backgroundColor: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                    <div style={{ width: "60%", height: "100%", background: `linear-gradient(90deg, ${colors.magicVioletBright}, ${colors.softGold})`, animation: "shimmerSweep 1.6s ease-in-out infinite" }} />
-                </div>
+                <UnityGame token={token} roomId={id} onError={handleGameError} onRunFinished={handleRunFinished} />
 
                 <button
                     onClick={handleReturnToRoom}
-                    style={{ marginTop: "36px", display: "flex", alignItems: "center", gap: "8px", background: "transparent", color: colors.brassBright, border: `1px solid ${colors.vaultBorder}`, borderRadius: "16px", padding: "10px 20px", fontFamily: fonts.body, fontWeight: "600", fontSize: "13px", cursor: "pointer" }}
+                    style={{ marginTop: "20px", display: "flex", alignItems: "center", gap: "8px", background: "transparent", color: colors.brassBright, border: `1px solid ${colors.vaultBorder}`, borderRadius: "16px", padding: "10px 20px", fontFamily: fonts.body, fontWeight: "600", fontSize: "13px", cursor: "pointer" }}
                 >
                     <ArrowLeft size={14} /> Return to Room
                 </button>
@@ -98,16 +145,50 @@ function StudentRoomPage() {
                             <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.inkMuted, margin: 0 }}>{room?.description}</p>
                         </div>
 
-                        {/* Campaigns section */}
+                        {/* Two sections side by side */}
+                        <div style={{ display: "flex", gap: "24px", alignItems: "flex-start" }}>
+
+                            {/* Members section: the room owner first, then the students */}
+                            <div style={{ flex: 1, minWidth: 0, backgroundColor: "rgba(255,255,255,0.35)", borderRadius: "24px", padding: "24px", border: `1px solid ${colors.magicViolet}55` }}>
+                            <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.magicViolet }}>
+                                IN THIS ROOM
+                            </p>
+                            <h2 style={{ fontFamily: fonts.display, color: colors.ink, margin: "0 0 16px 0" }}>Members</h2>
+
+                            {!members ? (
+                                <p style={{ fontFamily: fonts.body, color: colors.inkMuted }}>Loading members...</p>
+                            ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                    {[{ ...members.owner, isOwner: true }, ...members.students].map((m) => (
+                                        <div key={`${m.isOwner ? "owner" : "student"}-${m.id}`} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px", backgroundColor: colors.parchmentPanel, border: `1px solid ${colors.parchmentLine}`, borderRadius: "14px" }}>
+                                            <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.ink, margin: 0 }}>{m.name}</p>
+                                            {m.isOwner && (
+                                                <span style={{ fontFamily: fonts.body, fontSize: "10px", fontWeight: "600", color: colors.magicViolet, border: `1px solid ${colors.magicViolet}88`, borderRadius: "10px", padding: "1px 8px" }}>Owner</span>
+                                            )}
+                                            <ActiveBadge active={m.active} />
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            </div>
+
+                            {/* Campaigns section */}
+                            <div style={{ flex: 1, minWidth: 0, backgroundColor: "rgba(255,255,255,0.35)", borderRadius: "24px", padding: "24px", border: `1px solid ${colors.magicViolet}55` }}>
                         <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.magicViolet }}>
                             AWAITING RIDDLES
                         </p>
                         <h2 style={{ fontFamily: fonts.display, color: colors.ink, margin: "0 0 16px 0" }}>Campaigns</h2>
 
+                        {playError && (
+                            <p style={{ fontFamily: fonts.body, fontSize: "13px", color: "#B33A3A", margin: "0 0 16px 0" }}>
+                                {playError}
+                            </p>
+                        )}
+
                         {room?.campaigns?.length === 0 ? (
                             <p style={{ fontFamily: fonts.body, color: colors.inkMuted }}>No campaigns available yet.</p>
                         ) : (
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "24px" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px" }}>
                                 {room?.campaigns?.map((campaign) => (
                                     <div key={campaign.id} style={{ backgroundColor: colors.parchmentPanel, borderRadius: "24px", border: `1px solid ${colors.parchmentLine}`, padding: "24px", display: "flex", flexDirection: "column", justifyContent: "space-between", boxShadow: "0 10px 30px rgba(0,0,0,0.12)" }}>
                                         <div>
@@ -115,6 +196,19 @@ function StudentRoomPage() {
                                             <p style={{ fontFamily: fonts.display, fontWeight: "600", fontSize: "16px", color: colors.ink, margin: "10px 0 8px 0" }}>{campaign.title}</p>
                                             <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted, margin: "0 0 10px 0" }}>{campaign.description}</p>
                                             <SceneBadge scene={campaign.scene} />
+                                            {campaign.attachmentFilename && (
+                                                <button
+                                                    onClick={() => setPreviewCampaign(campaign)}
+                                                    title={`Preview ${campaign.attachmentFilename}`}
+                                                    style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%", marginTop: "10px", padding: "7px 10px", background: "none", border: `1px solid ${colors.magicViolet}55`, borderRadius: "10px", color: colors.magicViolet, fontFamily: fonts.body, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
+                                                >
+                                                    <Paperclip size={12} style={{ flexShrink: 0 }} />
+                                                    <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                        {campaign.attachmentFilename}
+                                                    </span>
+                                                    <Eye size={12} style={{ flexShrink: 0 }} />
+                                                </button>
+                                            )}
                                         </div>
                                         <button
                                             onClick={() => handlePlay(campaign)}
@@ -126,10 +220,17 @@ function StudentRoomPage() {
                                 ))}
                             </div>
                         )}
+                            </div>
+
+                        </div>
 
                     </div>
                 </div>
             </div>
+
+            {previewCampaign && (
+                <AttachmentPreviewModal campaign={previewCampaign} onClose={() => setPreviewCampaign(null)} />
+            )}
 
             {portalActive && (
                 <PortalTransition

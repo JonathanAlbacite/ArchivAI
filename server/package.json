@@ -4,7 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "seed": "node scripts/seedAll.js"
+  },
+  "prisma": {
+    "seed": "node scripts/seedAll.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
