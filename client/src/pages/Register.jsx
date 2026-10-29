@@ -1,267 +1,123 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Wand2, Compass, Check } from "lucide-react";
-import background from "../assets/background.png";
-import EmberField from "../components/EmberField";
-import { colors, fonts } from "../theme";
+import { Link, useNavigate } from "react-router-dom";
+import { Check, Compass, Mail, User, UserPlus, Wand2 } from "lucide-react";
+import AuthLayout from "../components/auth/AuthLayout";
+import { Alert, Button, PasswordField, TextField } from "../components/ui";
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const ROLES = [
+  { value: "STUDENT", label: "Student", hint: "I play campaigns", icon: Compass, tone: "student" },
+  { value: "TEACHER", label: "Teacher", hint: "I create campaigns", icon: Wand2, tone: "teacher" },
+];
 
 function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState("STUDENT");
-  const [focusedField, setFocusedField] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [serverError, setServerError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+
+  const validate = () => {
+    const next = {};
+    if (!name.trim()) next.name = "Enter your name.";
+    if (!email.trim()) next.email = "Enter your email address.";
+    else if (!EMAIL_PATTERN.test(email.trim())) next.email = "That doesn't look like an email address.";
+    if (!password) next.password = "Choose a password.";
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    setServerError("");
+    if (!validate() || submitting) return;
+    setSubmitting(true);
 
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password, role }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), password, role }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        alert(data.message);
+        setServerError(data.message || "Couldn't create the account.");
         return;
       }
 
-      alert("Account created! Please login.");
-      navigate("/");
+      navigate("/", { state: { registered: true, email: email.trim() } });
     } catch (err) {
       console.error(err);
-      alert("Something went wrong. Please try again.");
+      setServerError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const inputStyle = (field) => ({
-    width: "100%",
-    padding: "12px 16px",
-    borderRadius: "14px",
-    border: `1px solid ${focusedField === field ? colors.ember : colors.parchmentLine}`,
-    backgroundColor: colors.parchmentPanel,
-    fontFamily: fonts.body,
-    fontSize: "14px",
-    color: colors.ink,
-    outline: "none",
-    boxSizing: "border-box",
-    boxShadow: focusedField === field ? `0 0 0 3px ${colors.ember}33` : "none",
-    transition: "border-color 0.2s, box-shadow 0.2s",
-  });
-
-  const roleCardStyle = (value) => {
-    const active = role === value;
-    return {
-      flex: 1,
-      position: "relative",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      gap: "6px",
-      padding: "16px 10px",
-      borderRadius: "16px",
-      cursor: "pointer",
-      backgroundColor: active ? `${colors.ember}1A` : colors.parchmentPanel,
-      border: `2px solid ${active ? colors.ember : colors.parchmentLine}`,
-      boxShadow: active ? `0 0 0 3px ${colors.ember}22` : "none",
-      transition: "border-color 0.2s, background-color 0.2s, box-shadow 0.2s",
-    };
-  };
-
   return (
-    <div
-      style={{
-        backgroundImage: `linear-gradient(rgba(10,6,3,0.55), rgba(10,6,3,0.75)), url(${background})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundRepeat: "no-repeat",
-        width: "100vw",
-        height: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        position: "fixed",
-        top: 0,
-        left: 0,
-        overflowY: "auto",
-        padding: "20px 0",
-        boxSizing: "border-box",
-      }}
+    <AuthLayout
+      title="Create your account"
+      subtitle="Sign up as a student or a teacher."
+      footer={
+        <p className="text-sm text-muted">
+          Already have an account? <Link to="/" className="font-semibold">Sign in</Link>
+        </p>
+      }
     >
-      <EmberField variant="ember" count={30} />
+      <form onSubmit={handleRegister} noValidate className="stack">
+        {serverError && <Alert tone="danger">{serverError}</Alert>}
 
-      {/* Gold frame */}
-      <div
-        style={{
-          background: `linear-gradient(160deg, ${colors.brass}, ${colors.emberDim})`,
-          borderRadius: "28px",
-          padding: "3px",
-          boxShadow: `0 0 60px rgba(233,155,76,0.25), 0 25px 60px rgba(0,0,0,0.5)`,
-          position: "relative",
-        }}
-      >
-        {/* Tome card */}
-        <div
-          style={{
-            backgroundColor: colors.parchment,
-            borderRadius: "26px",
-            border: `1px solid ${colors.vaultBorder}44`,
-            padding: "40px 40px",
-            width: "420px",
-            boxSizing: "border-box",
-          }}
-        >
-          <p
-            style={{
-              textAlign: "center",
-              margin: "0 0 4px 0",
-              fontFamily: fonts.flourish,
-              fontSize: "12px",
-              letterSpacing: "3px",
-              color: colors.inkMuted,
-            }}
-          >
-            BEGIN YOUR LEGEND
-          </p>
+        <fieldset className="role-picker" disabled={submitting}>
+          <legend className="field__label" style={{ marginBottom: 8 }}>
+            I am a...
+          </legend>
+          <div className="role-picker__options">
+            {ROLES.map((r) => {
+              const Icon = r.icon;
+              const selected = role === r.value;
+              return (
+                <label key={r.value} className="role-option" data-selected={selected} style={{ "--tone": `var(--color-${r.tone})`, "--tone-soft": `var(--color-${r.tone}-soft)` }}>
+                  <input type="radio" name="role" value={r.value} checked={selected} onChange={() => setRole(r.value)} className="sr-only" />
+                  <span className="role-option__icon" aria-hidden="true">
+                    <Icon size={22} />
+                  </span>
+                  <span className="grow">
+                    <span className="role-option__label">{r.label}</span>
+                    <span className="role-option__hint">{r.hint}</span>
+                  </span>
+                  {selected && <Check size={18} className="role-option__check" aria-hidden="true" />}
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
 
-          <h1
-            style={{
-              textAlign: "center",
-              margin: "0 0 24px 0",
-              fontFamily: fonts.displayDecorative,
-              fontSize: "30px",
-              fontWeight: "700",
-              backgroundImage: `linear-gradient(90deg, ${colors.brass} 0%, ${colors.emberBright} 25%, ${colors.brassBright} 50%, ${colors.emberBright} 75%, ${colors.brass} 100%)`,
-              backgroundSize: "200% auto",
-              color: "transparent",
-              WebkitBackgroundClip: "text",
-              backgroundClip: "text",
-              animation: "shimmerSweep 5s linear infinite",
-            }}
-          >
-            CREATE ACCOUNT
-          </h1>
+        <TextField label="Name" icon={User} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} error={errors.name} required disabled={submitting} />
+        <TextField
+          label="Email"
+          type="email"
+          icon={Mail}
+          autoComplete="email"
+          inputMode="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          error={errors.email}
+          required
+          disabled={submitting}
+        />
+        <PasswordField value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" error={errors.password} required disabled={submitting} />
 
-          <form onSubmit={handleRegister} autoComplete="off">
-            <label style={{ display: "block", marginBottom: "8px", color: colors.ink, fontFamily: fonts.body, fontSize: "13px", fontWeight: "600" }}>
-              Name
-            </label>
-            <input
-              type="text"
-              placeholder="Enter your name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onFocus={() => setFocusedField("name")}
-              onBlur={() => setFocusedField(null)}
-              autoComplete="off"
-              style={inputStyle("name")}
-            />
-
-            <label style={{ display: "block", margin: "18px 0 8px 0", color: colors.ink, fontFamily: fonts.body, fontSize: "13px", fontWeight: "600" }}>
-              Email
-            </label>
-            <input
-              type="email"
-              placeholder="Enter your email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onFocus={() => setFocusedField("email")}
-              onBlur={() => setFocusedField(null)}
-              autoComplete="off"
-              style={inputStyle("email")}
-            />
-
-            <label style={{ display: "block", margin: "18px 0 8px 0", color: colors.ink, fontFamily: fonts.body, fontSize: "13px", fontWeight: "600" }}>
-              Password
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type={showPassword ? "text" : "password"}
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onFocus={() => setFocusedField("password")}
-                onBlur={() => setFocusedField(null)}
-                autoComplete="new-password"
-                style={{ ...inputStyle("password"), paddingRight: "44px" }}
-              />
-              <span
-                onClick={() => setShowPassword(!showPassword)}
-                style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", display: "flex" }}
-              >
-                {showPassword ? <EyeOff size={18} color={colors.inkMuted} /> : <Eye size={18} color={colors.inkMuted} />}
-              </span>
-            </div>
-
-            <label style={{ display: "block", margin: "18px 0 10px 0", color: colors.ink, fontFamily: fonts.body, fontSize: "13px", fontWeight: "600" }}>
-              I am a...
-            </label>
-            <div style={{ display: "flex", gap: "12px" }}>
-              <div onClick={() => setRole("TEACHER")} style={roleCardStyle("TEACHER")}>
-                {role === "TEACHER" && (
-                  <Check size={14} color={colors.ember} style={{ position: "absolute", top: "8px", right: "8px" }} />
-                )}
-                <Wand2 size={26} color={role === "TEACHER" ? colors.ember : colors.inkMuted} />
-                <p style={{ margin: 0, fontFamily: fonts.display, fontWeight: "600", fontSize: "13px", color: colors.ink }}>Teacher</p>
-                <p style={{ margin: 0, fontFamily: fonts.body, fontSize: "10px", color: colors.inkMuted, textAlign: "center" }}>I seek to teach</p>
-              </div>
-              <div onClick={() => setRole("STUDENT")} style={roleCardStyle("STUDENT")}>
-                {role === "STUDENT" && (
-                  <Check size={14} color={colors.ember} style={{ position: "absolute", top: "8px", right: "8px" }} />
-                )}
-                <Compass size={26} color={role === "STUDENT" ? colors.ember : colors.inkMuted} />
-                <p style={{ margin: 0, fontFamily: fonts.display, fontWeight: "600", fontSize: "13px", color: colors.ink }}>Student</p>
-                <p style={{ margin: 0, fontFamily: fonts.body, fontSize: "10px", color: colors.inkMuted, textAlign: "center" }}>I seek to explore</p>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: "12px", marginTop: "26px" }}>
-              <button
-                type="submit"
-                style={{
-                  flex: 1,
-                  padding: "13px",
-                  background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`,
-                  color: "white",
-                  border: "none",
-                  borderRadius: "16px",
-                  fontFamily: fonts.body,
-                  fontWeight: "600",
-                  fontSize: "14px",
-                  cursor: "pointer",
-                  animation: "glowPulse 3s ease-in-out infinite",
-                }}
-              >
-                Create Account
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate("/")}
-                style={{
-                  flex: 1,
-                  padding: "13px",
-                  backgroundColor: "transparent",
-                  color: colors.ink,
-                  border: `1px solid ${colors.vaultBorder}66`,
-                  borderRadius: "16px",
-                  fontFamily: fonts.body,
-                  fontWeight: "600",
-                  fontSize: "14px",
-                  cursor: "pointer",
-                }}
-              >
-                Back to Login
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+        <Button type="submit" variant="primary" size="lg" block loading={submitting} icon={UserPlus}>
+          {submitting ? "Creating account..." : "Create account"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }
 

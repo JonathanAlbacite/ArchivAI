@@ -1,24 +1,29 @@
-import { FlaskConical, BookOpen, Skull, HelpCircle } from "lucide-react";
-import { colors } from "./theme";
+import { FlaskConical, BookOpen, Landmark, HelpCircle } from "lucide-react";
 
-// previewSrc points at /public/scenes/<key>.png — drop the artwork in there
-// and it picks it up automatically. Until then callers fall back to the icon
-// (see IllustrationFrame's onError handling in SpellBookModal).
+// The three playable vaults. `key` is the value stored on Campaign.scene and
+// used in the vault-template URLs, so it must not change. Colors are theme
+// variables (laboratory = green, library = gold, tomb = plum).
 export const SCENE_LIST = [
-  { key: "laboratory", label: "Laboratory", Icon: FlaskConical, color: colors.sceneLab, previewSrc: "/scenes/laboratory.png" },
-  { key: "library", label: "Library", Icon: BookOpen, color: colors.sceneLibrary, previewSrc: "/scenes/library.png" },
-  { key: "tomb", label: "Tomb", Icon: Skull, color: colors.sceneTomb, previewSrc: "/scenes/tomb.png" },
-];
+  { key: "laboratory", label: "Laboratory", Icon: FlaskConical, blurb: "A science lab setting." },
+  { key: "library", label: "Library", Icon: BookOpen, blurb: "A library setting." },
+  { key: "tomb", label: "Tomb", Icon: Landmark, blurb: "An ancient tomb setting." },
+].map((s) => ({ ...s, color: `var(--color-${s.key})`, soft: `var(--color-${s.key}-soft)` }));
+
+const UNKNOWN = {
+  key: "",
+  Icon: HelpCircle,
+  blurb: "",
+  color: "var(--color-text-muted)",
+  soft: "var(--color-surface-muted)",
+};
 
 export function getSceneMeta(scene) {
   const key = (scene || "").toLowerCase().trim();
-  return (
-    SCENE_LIST.find((s) => s.key === key) || {
-      key: "",
-      label: scene || "Unknown Scene",
-      Icon: HelpCircle,
-      color: colors.inkMuted,
-      previewSrc: null,
-    }
-  );
+  return SCENE_LIST.find((s) => s.key === key) || { ...UNKNOWN, label: scene || "No vault" };
 }
+
+// Inline style that exposes a scene's pair of colors to CSS (--scene / --scene-soft).
+export const sceneStyle = (scene) => {
+  const meta = getSceneMeta(scene);
+  return { "--scene": meta.color, "--scene-soft": meta.soft };
+};

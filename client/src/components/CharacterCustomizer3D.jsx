@@ -44,8 +44,10 @@ function CharacterCustomizer3D({ characterSets, selections }) {
     const characterSetsRef = useRef(characterSets)
     const applyVisibilityRef = useRef(() => {})
 
-    selectionsRef.current = selections
-    characterSetsRef.current = characterSets
+    useEffect(() => {
+        selectionsRef.current = selections
+        characterSetsRef.current = characterSets
+    })
 
     // Builds the scene once on mount - loading, lighting, the render loop, and drag-to-rotate all
     // live here and are never recreated. `characterSets` is only read through the ref above (same

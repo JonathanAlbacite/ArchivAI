@@ -1,86 +1,108 @@
-import { useParams, useNavigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { Wand2, ArrowLeft, Paperclip, Eye } from 'lucide-react'
-import dashboard_bg from '../../assets/dashboard_bg.png'
-import Navbar from '../../components/Navbar'
-import EmberField from '../../components/EmberField'
-import PortalTransition from '../../components/PortalTransition'
-import UnityGame from '../../components/UnityGame'
-import { SceneBadge, SceneIcon } from '../../components/SceneIcon'
-import { getSceneMeta } from '../../scenes'
-import ActiveBadge from '../../components/ActiveBadge'
-import useRoomMembers from '../../lib/useRoomMembers'
-import { colors, fonts } from '../../theme'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { Map as MapIcon } from 'lucide-react'
+import GameStage from '../../components/game/GameStage'
+import CampaignQuestCard from '../../components/student/CampaignQuestCard'
+import RoomMembers from '../../components/RoomMembers'
 import AttachmentPreviewModal from '../../components/AttachmentPreviewModal'
+import { BooksArt } from '../../components/Illustrations'
+import { Alert, Breadcrumbs, Button, EmptyState, PageHeader, Skeleton, SkeletonCards } from '../../components/ui'
+import useRoomMembers from '../../lib/useRoomMembers'
+import { api, errorMessage } from '../../lib/api'
+import { fetchCampaignStatus } from '../../lib/studentProgress'
+import { clearSession } from '../../lib/session'
+import { useToast } from '../../lib/toast'
 
 function StudentRoomPage() {
     const { id } = useParams()
+    const location = useLocation()
+    const navigate = useNavigate()
+    const toast = useToast()
     const [room, setRoom] = useState(null)
+    const [loadError, setLoadError] = useState("")
+    const [statuses, setStatuses] = useState({})
+    const [reloadKey, setReloadKey] = useState(0)
     const members = useRoomMembers(id)
-    const [portalActive, setPortalActive] = useState(false)
-    const [gameLoading, setGameLoading] = useState(false)
     const [activeCampaign, setActiveCampaign] = useState(null)
+    const [startingId, setStartingId] = useState(null)
     const [playError, setPlayError] = useState(null)
     const [previewCampaign, setPreviewCampaign] = useState(null)
-    const navigate = useNavigate()
-
-    const fetchRoom = async () => {
-        const token = localStorage.getItem("token")
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/rooms/${id}`, {
-            headers: { "Authorization": `Bearer ${token}` }
-        })
-        const data = await res.json()
-        setRoom(data)
-    }
 
     useEffect(() => {
-        fetchRoom()
-    }, [id])
+        let cancelled = false
+        const load = async () => {
+            try {
+                const { ok, status, data } = await api(`/rooms/${id}`)
+                if (cancelled) return
+                if (!ok) {
+                    if (status === 401) {
+                        clearSession()
+                        navigate("/")
+                        return
+                    }
+                    setLoadError(status === 403 ? "You're not a member of this room." : status === 404 ? "This room doesn't exist anymore." : errorMessage(data))
+                    return
+                }
+                setLoadError("")
+                setRoom(data)
+                // Each quest's completion / last rank, loaded alongside.
+                const entries = await Promise.all((data.campaigns || []).map(async (c) => [c.id, await fetchCampaignStatus(c.id)]))
+                if (!cancelled) setStatuses(Object.fromEntries(entries))
+            } catch {
+                if (!cancelled) setLoadError("Couldn't reach the server. Check your connection and try again.")
+            }
+        }
+        load()
+        return () => { cancelled = true }
+    }, [id, navigate, reloadKey])
 
     // Marks this room's active campaign server-side BEFORE the game mounts -
     // Unity only ever receives {token, roomId} (see UnityGame.jsx), then
     // asks the API which campaign is currently active for that room. If
-    // that PATCH fails, the portal never starts and the player never sees
+    // that PATCH fails, the game never opens and the player never sees
     // a game that would just fail to find a campaign to load.
     const handlePlay = async (campaign) => {
         setPlayError(null)
-        const token = localStorage.getItem("token")
+        setStartingId(campaign.id)
 
         try {
-            const res = await fetch(`${import.meta.env.VITE_API_URL}/api/rooms/${id}/active-campaign`, {
+            const { ok, data } = await api(`/rooms/${id}/active-campaign`, {
                 method: "PATCH",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`,
-                },
-                body: JSON.stringify({ campaignId: campaign.id }),
+                body: { campaignId: campaign.id },
             })
-
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}))
-                throw new Error(data.message || "Could not start this campaign")
-            }
-
+            if (!ok) throw new Error(errorMessage(data, "Could not start this campaign"))
             setActiveCampaign(campaign)
-            setPortalActive(true)
         } catch (err) {
-            setPlayError(err.message)
+            setPlayError(err.message === "Failed to fetch" ? "Couldn't reach the server. Check your connection and try again." : err.message)
+        } finally {
+            setStartingId(null)
         }
     }
 
-    const handlePortalComplete = () => {
-        setPortalActive(false)
-        setGameLoading(true)
-    }
+    // "Retry" on the results page comes back here asking to replay a quest.
+    const autoPlayId = location.state?.playCampaignId
+    const autoPlayed = useRef(false)
+    useEffect(() => {
+        if (!room || !autoPlayId || autoPlayed.current) return
+        autoPlayed.current = true
+        navigate(location.pathname, { replace: true, state: null })
+        const campaign = room.campaigns?.find((c) => c.id === autoPlayId)
+        if (campaign) {
+            const t = setTimeout(() => handlePlay(campaign), 0)
+            return () => clearTimeout(t)
+        }
+        // handlePlay is recreated each render; this only needs to run once per autoplay request
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [room, autoPlayId])
 
     const handleReturnToRoom = () => {
-        setGameLoading(false)
         setActiveCampaign(null)
+        setReloadKey((k) => k + 1)
     }
 
     const handleGameError = () => {
         setPlayError("The game failed to load. Check your connection and try again.")
-        handleReturnToRoom()
+        setActiveCampaign(null)
     }
 
     // The game raises this when a run ends. A saved run opens its results page. If the website
@@ -90,153 +112,93 @@ function StudentRoomPage() {
             navigate(`/results/${campaignId}`, { state: { roomId: id } })
             return
         }
-        setPlayError("Your run finished, but the results could not be saved. Check your connection and try again.")
+        toast.error("Your run finished, but the results could not be saved. Check your connection and try again.", { title: "Results not saved" })
         handleReturnToRoom()
     }
 
-    if (gameLoading && activeCampaign) {
-        const sceneMeta = getSceneMeta(activeCampaign.scene)
-        const token = localStorage.getItem("token")
+    if (activeCampaign) {
         return (
-            <div style={{ position: "fixed", inset: 0, backgroundColor: colors.obsidianDeep, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 500 }}>
-                <div style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 40%, ${sceneMeta.color}33, transparent 60%)`, pointerEvents: "none" }} />
-
-                <sceneMeta.Icon size={54} color={sceneMeta.color} />
-                <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "28px", color: colors.softGold, margin: "20px 0 6px 0", textAlign: "center" }}>
-                    {activeCampaign.title}
-                </h1>
-                <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.brassBright, opacity: 0.85, margin: "0 0 20px 0" }}>
-                    Entering the {sceneMeta.label}...
-                </p>
-
-                <UnityGame token={token} roomId={id} onError={handleGameError} onRunFinished={handleRunFinished} />
-
-                <button
-                    onClick={handleReturnToRoom}
-                    style={{ marginTop: "20px", display: "flex", alignItems: "center", gap: "8px", background: "transparent", color: colors.brassBright, border: `1px solid ${colors.vaultBorder}`, borderRadius: "16px", padding: "10px 20px", fontFamily: fonts.body, fontWeight: "600", fontSize: "13px", cursor: "pointer" }}
-                >
-                    <ArrowLeft size={14} /> Return to Room
-                </button>
-            </div>
+            <GameStage
+                campaign={activeCampaign}
+                roomId={id}
+                onExit={handleReturnToRoom}
+                onError={handleGameError}
+                onRunFinished={handleRunFinished}
+            />
         )
     }
 
+    const campaigns = room?.campaigns || []
+    const doneCount = campaigns.filter((c) => statuses[c.id]?.state === "completed").length
+
     return (
-        <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-            <Navbar />
+        <div className="page">
+            <PageHeader
+                breadcrumbs={<Breadcrumbs items={[{ label: "Dashboard", to: "/student/dashboard" }, { label: room?.name || "Room" }]} />}
+                eyebrow="Room"
+                title={room ? room.name : loadError ? "Room unavailable" : <Skeleton width={260} height={34} />}
+                description={room?.description || (members?.owner?.name ? `Hosted by ${members.owner.name}` : undefined)}
+            />
 
-            {/* Background div */}
-            <div style={{ position: "relative", display: "flex", minHeight: "100vh", backgroundImage: `radial-gradient(ellipse at 50% 0%, rgba(139,111,179,0.25), rgba(243,233,215,0.85)), url(${dashboard_bg})`, backgroundSize: "cover", backgroundPosition: "center" }}>
+            {loadError && (
+                <Alert tone="danger" title="We couldn't open this room" action={<Button size="sm" to="/student/dashboard">Back to dashboard</Button>}>
+                    {loadError}
+                </Alert>
+            )}
 
-                <EmberField variant="sparkle" count={22} />
-
-                {/* Cream panel */}
-                <div style={{ position: "relative", backgroundColor: colors.parchmentDark, flex: 1, borderRadius: "24px", margin: "20px", boxShadow: "0 20px 50px rgba(0,0,0,0.25)", border: `1px solid ${colors.magicViolet}55` }}>
-                    <div style={{ padding: "40px" }}>
-
-                        {/* Breadcrumb */}
-                        <p onClick={() => navigate("/student/dashboard")} style={{ cursor: "pointer", color: colors.magicViolet, fontFamily: fonts.body, fontSize: "14px", marginBottom: "16px" }}>
-                            My Rooms &gt; {room ? room.name : ""}
-                        </p>
-
-                        {/* Room header */}
-                        <div style={{ marginBottom: "32px" }}>
-                            <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "32px", color: colors.ink, margin: "0 0 8px 0" }}>{room?.name}</h1>
-                            <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.inkMuted, margin: 0 }}>{room?.description}</p>
-                        </div>
-
-                        {/* Two sections side by side */}
-                        <div style={{ display: "flex", gap: "24px", alignItems: "flex-start" }}>
-
-                            {/* Members section: the room owner first, then the students */}
-                            <div style={{ flex: 1, minWidth: 0, backgroundColor: "rgba(255,255,255,0.35)", borderRadius: "24px", padding: "24px", border: `1px solid ${colors.magicViolet}55` }}>
-                            <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.magicViolet }}>
-                                IN THIS ROOM
-                            </p>
-                            <h2 style={{ fontFamily: fonts.display, color: colors.ink, margin: "0 0 16px 0" }}>Members</h2>
-
-                            {!members ? (
-                                <p style={{ fontFamily: fonts.body, color: colors.inkMuted }}>Loading members...</p>
-                            ) : (
-                                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                                    {[{ ...members.owner, isOwner: true }, ...members.students].map((m) => (
-                                        <div key={`${m.isOwner ? "owner" : "student"}-${m.id}`} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px", backgroundColor: colors.parchmentPanel, border: `1px solid ${colors.parchmentLine}`, borderRadius: "14px" }}>
-                                            <p style={{ fontFamily: fonts.body, fontSize: "14px", color: colors.ink, margin: 0 }}>{m.name}</p>
-                                            {m.isOwner && (
-                                                <span style={{ fontFamily: fonts.body, fontSize: "10px", fontWeight: "600", color: colors.magicViolet, border: `1px solid ${colors.magicViolet}88`, borderRadius: "10px", padding: "1px 8px" }}>Owner</span>
-                                            )}
-                                            <ActiveBadge active={m.active} />
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+            {!loadError && (
+                <div className="split">
+                    <section aria-labelledby="quests-heading">
+                        <div className="section__head">
+                            <div>
+                                <h2 id="quests-heading" className="section__title row" style={{ "--gap": "8px" }}>
+                                    <MapIcon size={20} aria-hidden="true" /> Campaigns
+                                </h2>
+                                {room && campaigns.length > 0 && (
+                                    <p className="text-sm text-muted">{doneCount} of {campaigns.length} completed · play them in any order</p>
+                                )}
                             </div>
-
-                            {/* Campaigns section */}
-                            <div style={{ flex: 1, minWidth: 0, backgroundColor: "rgba(255,255,255,0.35)", borderRadius: "24px", padding: "24px", border: `1px solid ${colors.magicViolet}55` }}>
-                        <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.magicViolet }}>
-                            AWAITING RIDDLES
-                        </p>
-                        <h2 style={{ fontFamily: fonts.display, color: colors.ink, margin: "0 0 16px 0" }}>Campaigns</h2>
+                        </div>
 
                         {playError && (
-                            <p style={{ fontFamily: fonts.body, fontSize: "13px", color: "#B33A3A", margin: "0 0 16px 0" }}>
+                            <Alert tone="danger" title="Couldn't start the campaign" className="section__alert">
                                 {playError}
-                            </p>
+                            </Alert>
                         )}
 
-                        {room?.campaigns?.length === 0 ? (
-                            <p style={{ fontFamily: fonts.body, color: colors.inkMuted }}>No campaigns available yet.</p>
+                        {!room ? (
+                            <SkeletonCards count={2} height={320} />
+                        ) : campaigns.length === 0 ? (
+                            <EmptyState art={<BooksArt />} title="No campaigns yet">
+                                Your teacher hasn't published a campaign in this room yet.
+                            </EmptyState>
                         ) : (
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px" }}>
-                                {room?.campaigns?.map((campaign) => (
-                                    <div key={campaign.id} style={{ backgroundColor: colors.parchmentPanel, borderRadius: "24px", border: `1px solid ${colors.parchmentLine}`, padding: "24px", display: "flex", flexDirection: "column", justifyContent: "space-between", boxShadow: "0 10px 30px rgba(0,0,0,0.12)" }}>
-                                        <div>
-                                            <SceneIcon scene={campaign.scene} size={20} />
-                                            <p style={{ fontFamily: fonts.display, fontWeight: "600", fontSize: "16px", color: colors.ink, margin: "10px 0 8px 0" }}>{campaign.title}</p>
-                                            <p style={{ fontFamily: fonts.body, fontSize: "13px", color: colors.inkMuted, margin: "0 0 10px 0" }}>{campaign.description}</p>
-                                            <SceneBadge scene={campaign.scene} />
-                                            {campaign.attachmentFilename && (
-                                                <button
-                                                    onClick={() => setPreviewCampaign(campaign)}
-                                                    title={`Preview ${campaign.attachmentFilename}`}
-                                                    style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%", marginTop: "10px", padding: "7px 10px", background: "none", border: `1px solid ${colors.magicViolet}55`, borderRadius: "10px", color: colors.magicViolet, fontFamily: fonts.body, fontSize: "12px", fontWeight: "600", cursor: "pointer" }}
-                                                >
-                                                    <Paperclip size={12} style={{ flexShrink: 0 }} />
-                                                    <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                        {campaign.attachmentFilename}
-                                                    </span>
-                                                    <Eye size={12} style={{ flexShrink: 0 }} />
-                                                </button>
-                                            )}
-                                        </div>
-                                        <button
-                                            onClick={() => handlePlay(campaign)}
-                                            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", padding: "10px", background: `linear-gradient(160deg, ${colors.magicVioletBright}, ${colors.magicViolet})`, color: "white", border: "none", borderRadius: "18px", fontFamily: fonts.body, fontWeight: "600", fontSize: "14px", cursor: "pointer", marginTop: "16px" }}
-                                        >
-                                            <Wand2 size={14} /> Play
-                                        </button>
-                                    </div>
+                            <ol className="quest-path" role="list">
+                                {campaigns.map((campaign, i) => (
+                                    <li key={campaign.id}>
+                                        <CampaignQuestCard
+                                            campaign={campaign}
+                                            number={i + 1}
+                                            status={statuses[campaign.id]}
+                                            starting={startingId === campaign.id}
+                                            disabled={startingId !== null && startingId !== campaign.id}
+                                            onPlay={handlePlay}
+                                            onPreviewAttachment={setPreviewCampaign}
+                                        />
+                                    </li>
                                 ))}
-                            </div>
+                            </ol>
                         )}
-                            </div>
+                    </section>
 
-                        </div>
-
-                    </div>
+                    <aside aria-label="Room members">
+                        <RoomMembers members={members} />
+                    </aside>
                 </div>
-            </div>
+            )}
 
             {previewCampaign && (
                 <AttachmentPreviewModal campaign={previewCampaign} onClose={() => setPreviewCampaign(null)} />
-            )}
-
-            {portalActive && (
-                <PortalTransition
-                    label={activeCampaign ? `Entering ${activeCampaign.title}...` : "The vault opens..."}
-                    onComplete={handlePortalComplete}
-                />
             )}
         </div>
     )

@@ -1,216 +1,106 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
-import background from "../assets/background.png";
-import EmberField from "../components/EmberField";
-import { colors, fonts } from "../theme";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { LogIn, Mail } from "lucide-react";
+import AuthLayout from "../components/auth/AuthLayout";
+import { Alert, Button, PasswordField, TextField } from "../components/ui";
+import { homeFor } from "../lib/session";
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [focusedField, setFocusedField] = useState(null);
+  const location = useLocation();
   const navigate = useNavigate();
+  const [email, setEmail] = useState(location.state?.email || "");
+  const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState({});
+  const [serverError, setServerError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const justRegistered = location.state?.registered;
+
+  const validate = () => {
+    const next = {};
+    if (!email.trim()) next.email = "Enter your email address.";
+    else if (!EMAIL_PATTERN.test(email.trim())) next.email = "That doesn't look like an email address.";
+    if (!password) next.password = "Enter your password.";
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setServerError("");
+    if (!validate() || submitting) return;
+    setSubmitting(true);
 
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        alert(data.message);
+        setServerError(data.message === "Invalid credentials" ? "That email and password don't match an account." : data.message || "Sign-in failed.");
         return;
       }
 
       localStorage.setItem("token", data.token);
       localStorage.setItem("role", data.role);
       localStorage.setItem("name", data.name);
-
-      if (data.role === "TEACHER") {
-        navigate("/teacher/dashboard");
-      } else if (data.role === "ADMIN") {
-        navigate("/admin/dashboard");
-      } else {
-        navigate("/student/dashboard");
-      }
+      navigate(homeFor(data.role));
     } catch (err) {
       console.error(err);
-      alert("Something went wrong. Please try again.");
+      setServerError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const inputStyle = (field) => ({
-    width: "100%",
-    padding: "12px 16px",
-    borderRadius: "14px",
-    border: `1px solid ${focusedField === field ? colors.ember : colors.parchmentLine}`,
-    backgroundColor: colors.parchmentPanel,
-    fontFamily: fonts.body,
-    fontSize: "14px",
-    color: colors.ink,
-    outline: "none",
-    boxSizing: "border-box",
-    boxShadow: focusedField === field ? `0 0 0 3px ${colors.ember}33` : "none",
-    transition: "border-color 0.2s, box-shadow 0.2s",
-  });
-
   return (
-    <div
-      style={{
-        backgroundImage: `linear-gradient(rgba(10,6,3,0.55), rgba(10,6,3,0.75)), url(${background})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundRepeat: "no-repeat",
-        width: "100vw",
-        height: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        position: "fixed",
-        top: 0,
-        left: 0,
-      }}
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Sign in to your account."
+      footer={
+        <p className="text-sm text-muted">
+          New here? <Link to="/register" className="font-semibold">Create an account</Link>
+        </p>
+      }
     >
-      <EmberField variant="ember" count={30} />
+      <form onSubmit={handleLogin} noValidate className="stack">
+        {justRegistered && !serverError && (
+          <Alert tone="success" title="Account created">
+            Sign in with your new account.
+          </Alert>
+        )}
+        {serverError && <Alert tone="danger">{serverError}</Alert>}
 
-      {/* Gold frame */}
-      <div
-        style={{
-          background: `linear-gradient(160deg, ${colors.brass}, ${colors.emberDim})`,
-          borderRadius: "28px",
-          padding: "3px",
-          boxShadow: `0 0 60px rgba(233,155,76,0.25), 0 25px 60px rgba(0,0,0,0.5)`,
-          position: "relative",
-        }}
-      >
-        {/* Tome card */}
-        <div
-          style={{
-            backgroundColor: colors.parchment,
-            borderRadius: "26px",
-            border: `1px solid ${colors.vaultBorder}44`,
-            padding: "44px 40px",
-            width: "400px",
-            boxSizing: "border-box",
-          }}
-        >
-          <p
-            style={{
-              textAlign: "center",
-              margin: "0 0 4px 0",
-              fontFamily: fonts.flourish,
-              fontSize: "12px",
-              letterSpacing: "3px",
-              color: colors.inkMuted,
-            }}
-          >
-            THE VAULT AWAITS
-          </p>
-
-          <h1
-            style={{
-              textAlign: "center",
-              margin: "0 0 28px 0",
-              fontFamily: fonts.displayDecorative,
-              fontSize: "36px",
-              fontWeight: "700",
-              backgroundImage: `linear-gradient(90deg, ${colors.brass} 0%, ${colors.emberBright} 25%, ${colors.brassBright} 50%, ${colors.emberBright} 75%, ${colors.brass} 100%)`,
-              backgroundSize: "200% auto",
-              color: "transparent",
-              WebkitBackgroundClip: "text",
-              backgroundClip: "text",
-              animation: "shimmerSweep 5s linear infinite",
-            }}
-          >
-            LOGIN
-          </h1>
-
-          <form onSubmit={handleLogin} autoComplete="off">
-            <label style={{ display: "block", marginBottom: "8px", color: colors.ink, fontFamily: fonts.body, fontSize: "13px", fontWeight: "600" }}>
-              Email
-            </label>
-            <input
-              type="email"
-              placeholder="Enter your email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onFocus={() => setFocusedField("email")}
-              onBlur={() => setFocusedField(null)}
-              autoComplete="off"
-              style={inputStyle("email")}
-            />
-
-            <label style={{ display: "block", margin: "20px 0 8px 0", color: colors.ink, fontFamily: fonts.body, fontSize: "13px", fontWeight: "600" }}>
-              Password
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                type={showPassword ? "text" : "password"}
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onFocus={() => setFocusedField("password")}
-                onBlur={() => setFocusedField(null)}
-                autoComplete="new-password"
-                style={{ ...inputStyle("password"), paddingRight: "44px" }}
-              />
-              <span
-                onClick={() => setShowPassword(!showPassword)}
-                style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", cursor: "pointer", display: "flex" }}
-              >
-                {showPassword ? <EyeOff size={18} color={colors.inkMuted} /> : <Eye size={18} color={colors.inkMuted} />}
-              </span>
-            </div>
-
-            <div style={{ display: "flex", gap: "12px", marginTop: "28px" }}>
-              <button
-                type="submit"
-                style={{
-                  flex: 1,
-                  padding: "13px",
-                  background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`,
-                  color: "white",
-                  border: "none",
-                  borderRadius: "16px",
-                  fontFamily: fonts.body,
-                  fontWeight: "600",
-                  fontSize: "14px",
-                  cursor: "pointer",
-                  animation: "glowPulse 3s ease-in-out infinite",
-                }}
-              >
-                Enter
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate("/register")}
-                style={{
-                  flex: 1,
-                  padding: "13px",
-                  backgroundColor: "transparent",
-                  color: colors.ink,
-                  border: `1px solid ${colors.vaultBorder}66`,
-                  borderRadius: "16px",
-                  fontFamily: fonts.body,
-                  fontWeight: "600",
-                  fontSize: "14px",
-                  cursor: "pointer",
-                }}
-              >
-                Create Account
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+        <TextField
+          label="Email"
+          type="email"
+          icon={Mail}
+          autoComplete="email"
+          inputMode="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          error={errors.email}
+          required
+          disabled={submitting}
+        />
+        <PasswordField
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          error={errors.password}
+          required
+          disabled={submitting}
+        />
+        <Button type="submit" variant="primary" size="lg" block loading={submitting} icon={LogIn}>
+          {submitting ? "Signing in..." : "Sign in"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }
 

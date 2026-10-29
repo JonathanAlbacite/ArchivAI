@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Download, FileQuestion, Minus, Plus, Printer, ChevronDown } from "lucide-react";
-import { colors, fonts } from "../theme";
 import { fetchCampaignAttachment, saveFile } from "../lib/downloadCampaignAttachment";
 
 // Which file types the browser can show inline, keyed by extension (the
@@ -63,6 +62,12 @@ function AttachmentPreviewModal({ campaign, onClose }) {
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(100);
   const frameRef = useRef(null);
+  const closeRef = useRef(null);
+
+  // Focus starts on Close so keyboard users can leave right away.
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
 
   // Documents rendered into a sheet (docx/txt) and images get our own zoom
   // and print controls; PDFs use the browser's built-in PDF toolbar instead.
@@ -132,9 +137,9 @@ function AttachmentPreviewModal({ campaign, onClose }) {
 
   const renderBody = () => {
     if (error)
-      return <p style={{ fontFamily: fonts.body, fontSize: "14px", color: "#F28B82", alignSelf: "center" }}>{error}</p>;
+      return <p style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "#F28B82", alignSelf: "center" }}>{error}</p>;
     if (!url)
-      return <p style={{ fontFamily: fonts.body, fontSize: "14px", color: "#BDC1C6", alignSelf: "center" }}>Opening the scroll...</p>;
+      return <p style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "#BDC1C6", alignSelf: "center" }}>Opening the file...</p>;
 
     if (previewType?.kind === "pdf")
       return <iframe src={url} title={filename} style={{ width: "min(1100px, 100%)", height: "100%", border: "none", backgroundColor: "white" }} />;
@@ -151,8 +156,8 @@ function AttachmentPreviewModal({ campaign, onClose }) {
 
     return (
       <div style={{ alignSelf: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "14px", textAlign: "center", padding: "32px 40px", backgroundColor: "#2D2E30", borderRadius: "16px" }}>
-        <FileQuestion size={40} color={colors.magicVioletBright} />
-        <p style={{ fontFamily: fonts.body, fontSize: "14px", color: "#E8EAED", margin: 0 }}>
+        <FileQuestion size={40} color="#C2A7FF" aria-hidden="true" />
+        <p style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "#E8EAED", margin: 0 }}>
           No preview available for this file type.<br />Download it to open it on your device.
         </p>
         <button onClick={() => saveFile(url, filename)} style={downloadButtonStyle(true)}>
@@ -165,20 +170,20 @@ function AttachmentPreviewModal({ campaign, onClose }) {
   const toolbarButton = { display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", background: "none", border: "none", borderRadius: "50%", color: "#E8EAED", cursor: "pointer" };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, backgroundColor: "rgba(20, 20, 22, 0.94)", display: "flex", flexDirection: "column" }}>
+    <div role="dialog" aria-modal="true" aria-label={`Attachment: ${filename}`} style={{ position: "fixed", inset: 0, zIndex: 1100, backgroundColor: "rgba(20, 20, 22, 0.96)", display: "flex", flexDirection: "column" }}>
       {/* Top bar: close, file badge + name, download */}
       <div style={{ display: "flex", alignItems: "center", gap: "14px", padding: "10px 20px 10px 12px", flexShrink: 0 }}>
-        <button onClick={onClose} title="Close (Esc)" style={{ ...toolbarButton, width: "40px", height: "40px" }}>
-          <X size={22} />
+        <button ref={closeRef} onClick={onClose} title="Close (Esc)" aria-label="Close attachment viewer" style={{ ...toolbarButton, width: "40px", height: "40px" }}>
+          <X size={22} aria-hidden="true" />
         </button>
         <div style={{ flexShrink: 0, minWidth: "26px", height: "28px", padding: "0 5px", boxSizing: "border-box", borderRadius: "5px", backgroundColor: badge.color, color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Arial, sans-serif", fontWeight: "700", fontSize: badge.label.length > 1 ? "9px" : "15px" }}>
           {badge.label}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p title={filename} style={{ margin: 0, fontFamily: fonts.body, fontSize: "17px", color: "#E8EAED", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <p title={filename} style={{ margin: 0, fontFamily: "var(--font-body)", fontSize: "17px", color: "#E8EAED", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {filename}
           </p>
-          <p style={{ margin: 0, fontFamily: fonts.body, fontSize: "12px", color: "#9AA0A6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <p style={{ margin: 0, fontFamily: "var(--font-body)", fontSize: "12px", color: "#9AA0A6", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {campaign.title}
           </p>
         </div>
@@ -190,21 +195,22 @@ function AttachmentPreviewModal({ campaign, onClose }) {
       {/* Zoom / print bar */}
       {hasToolbar && url && (
         <div style={{ display: "flex", alignItems: "center", gap: "6px", margin: "0 12px", padding: "6px 16px", backgroundColor: "#3C4043", borderRadius: "999px", flexShrink: 0, alignSelf: "stretch" }}>
-          <button onClick={handlePrint} title="Print" style={toolbarButton}><Printer size={18} /></button>
+          <button onClick={handlePrint} title="Print" aria-label="Print" style={toolbarButton}><Printer size={18} /></button>
           <div style={{ width: "1px", height: "20px", backgroundColor: "#5F6368", margin: "0 6px" }} />
-          <button onClick={() => stepZoom(-1)} disabled={zoom === ZOOM_LEVELS[0]} title="Zoom out" style={{ ...toolbarButton, opacity: zoom === ZOOM_LEVELS[0] ? 0.4 : 1 }}><Minus size={18} /></button>
+          <button onClick={() => stepZoom(-1)} disabled={zoom === ZOOM_LEVELS[0]} title="Zoom out" aria-label="Zoom out" style={{ ...toolbarButton, opacity: zoom === ZOOM_LEVELS[0] ? 0.4 : 1 }}><Minus size={18} /></button>
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
             <select
               value={zoom}
               onChange={(e) => setZoom(Number(e.target.value))}
               title="Zoom"
-              style={{ appearance: "none", background: "none", border: "none", color: "#E8EAED", fontFamily: fonts.body, fontSize: "14px", padding: "4px 22px 4px 6px", cursor: "pointer", outline: "none" }}
+              aria-label="Zoom level"
+              style={{ appearance: "none", background: "none", border: "none", color: "#E8EAED", fontFamily: "var(--font-body)", fontSize: "14px", padding: "4px 22px 4px 6px", cursor: "pointer", outline: "none" }}
             >
               {ZOOM_LEVELS.map((z) => <option key={z} value={z} style={{ color: "#202124" }}>{z}%</option>)}
             </select>
             <ChevronDown size={14} color="#E8EAED" style={{ position: "absolute", right: "4px", pointerEvents: "none" }} />
           </div>
-          <button onClick={() => stepZoom(1)} disabled={zoom === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} title="Zoom in" style={{ ...toolbarButton, opacity: zoom === ZOOM_LEVELS[ZOOM_LEVELS.length - 1] ? 0.4 : 1 }}><Plus size={18} /></button>
+          <button onClick={() => stepZoom(1)} disabled={zoom === ZOOM_LEVELS[ZOOM_LEVELS.length - 1]} title="Zoom in" aria-label="Zoom in" style={{ ...toolbarButton, opacity: zoom === ZOOM_LEVELS[ZOOM_LEVELS.length - 1] ? 0.4 : 1 }}><Plus size={18} /></button>
         </div>
       )}
 
@@ -221,8 +227,8 @@ function AttachmentPreviewModal({ campaign, onClose }) {
 
 const downloadButtonStyle = (enabled) => ({
   display: "flex", alignItems: "center", gap: "8px", flexShrink: 0, padding: "9px 20px",
-  background: `linear-gradient(160deg, ${colors.magicVioletBright}, ${colors.magicViolet})`, color: "white",
-  border: "none", borderRadius: "999px", fontFamily: fonts.body, fontWeight: "600", fontSize: "14px",
+  background: "#8EAAFF", color: "#141927",
+  border: "none", borderRadius: "999px", fontFamily: "var(--font-body)", fontWeight: "600", fontSize: "14px",
   cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.6,
 });
 

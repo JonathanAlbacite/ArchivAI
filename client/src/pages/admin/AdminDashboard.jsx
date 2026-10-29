@@ -1,264 +1,163 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import Navbar from "../../components/Navbar";
-import EmberField from "../../components/EmberField";
-import dashboard_bg from "../../assets/dashboard_bg.png";
-import { colors, fonts } from "../../theme";
-import { SCENE_LIST } from "../../scenes";
-import { Users, Palette, DoorOpen } from "lucide-react";
-
-const STATUS_META = {
-  published: { label: "Published", color: colors.success, bg: colors.successBg },
-  draft: { label: "Draft", color: colors.draft, bg: colors.draftBg },
-  empty: { label: "Not Started", color: colors.inkMuted, bg: "rgba(255,255,255,0.06)" },
-};
+import { ArrowRight, CheckCircle2, DoorOpen, Layers, Palette, Users } from "lucide-react";
+import { SceneArt } from "../../components/Illustrations";
+import { Alert, Badge, Button, Card, PageHeader, SkeletonCards, Stat, StatusChip } from "../../components/ui";
+import { SCENE_LIST, sceneStyle } from "../../scenes";
+import { api, errorMessage } from "../../lib/api";
+import { clearSession } from "../../lib/session";
+import { plural } from "../../lib/format";
 
 function statusFor(template) {
   if (!template || template.slots.length === 0) return "empty";
   return template.isPublished ? "published" : "draft";
 }
 
-// Landing page for the admin account: one card per vault (scene), each
-// showing whether its question-set template is published, still a draft,
-// or not started yet. Clicking a card opens AdminVaultEditor for that
-// scene, where the actual slot list is authored.
+// Landing page for the admin account: the three vault question-set templates
+// (published / draft / not started) and the character catalog, with links
+// into each manager and into Teacher Mode.
 function AdminDashboard() {
-  const [templates, setTemplates] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [hoveredScene, setHoveredScene] = useState(null);
+  const [templates, setTemplates] = useState(null);
+  const [sets, setSets] = useState(null);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchTemplates = async () => {
-      const token = localStorage.getItem("token");
+    let cancelled = false;
+    const load = async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/vault-templates`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) {
-            localStorage.removeItem("token");
-            localStorage.removeItem("role");
-            localStorage.removeItem("name");
-            navigate("/");
-            return;
-          }
-          alert(data.message);
+        const [tRes, sRes] = await Promise.all([api("/admin/vault-templates"), api("/character-sets")]);
+        if (cancelled) return;
+        if (tRes.status === 401 || tRes.status === 403) {
+          clearSession();
+          navigate("/");
           return;
         }
-
-        setTemplates(Object.fromEntries(data.map((t) => [t.scene, t])));
+        if (!tRes.ok) throw new Error(errorMessage(tRes.data, "Couldn't load the question sets."));
+        setTemplates(Object.fromEntries(tRes.data.map((t) => [t.scene, t])));
+        setSets(sRes.ok && Array.isArray(sRes.data) ? [...sRes.data].sort((a, b) => a.orderNumber - b.orderNumber) : []);
+        setError("");
       } catch (err) {
-        console.error(err);
-        alert("Something went wrong.");
-      } finally {
-        setLoading(false);
+        if (!cancelled) setError(err.message === "Failed to fetch" ? "Couldn't reach the server. Check your connection." : err.message);
       }
     };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, reloadKey]);
 
-    fetchTemplates();
-  }, []);
+  const loading = !templates && !error;
+  const publishedCount = templates ? SCENE_LIST.filter((s) => statusFor(templates[s.key]) === "published").length : 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-      <Navbar />
+    <div className="page">
+      <PageHeader
+        eyebrow="Admin"
+        title="Admin dashboard"
+        description="Set up each scene's question set and manage the character options."
+        actions={
+          <>
+            <Button variant="secondary" icon={Palette} to="/admin/character">
+              My character
+            </Button>
+            <Button variant="primary" icon={DoorOpen} to="/teacher/dashboard">
+              Teacher mode
+            </Button>
+          </>
+        }
+      />
 
-      <div
-        style={{
-          position: "relative",
-          display: "flex",
-          minHeight: "100vh",
-          backgroundImage: `radial-gradient(ellipse at 50% 0%, rgba(60,38,20,0.45), rgba(6,4,2,0.94)), url(${dashboard_bg})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        <EmberField variant="ember" count={26} />
+      {error && (
+        <Alert tone="danger" title="Something didn't load" action={<Button size="sm" onClick={() => setReloadKey((k) => k + 1)}>Try again</Button>}>
+          {error}
+        </Alert>
+      )}
 
-        <div
-          style={{
-            position: "relative",
-            background: `linear-gradient(165deg, ${colors.wood} 0%, ${colors.obsidian} 100%)`,
-            flex: 1,
-            borderRadius: "24px",
-            margin: "20px",
-            boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
-            border: `1px solid ${colors.vaultBorder}`,
-          }}
-        >
-          <div style={{ padding: "40px" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px" }}>
-              <div>
-                <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: colors.brass }}>
-                  ADMIN DASHBOARD
-                </p>
-                <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "34px", color: colors.brassBright, margin: 0 }}>
-                  Vault Templates
-                </h1>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <button
-                  onClick={() => navigate("/admin/character-sets")}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    padding: "10px 18px",
-                    background: "transparent",
-                    color: colors.brassBright,
-                    border: `1px solid ${colors.brass}`,
-                    borderRadius: "16px",
-                    fontFamily: fonts.body,
-                    fontWeight: "600",
-                    fontSize: "13px",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <Users size={15} /> Character Sets
-                </button>
+      <div className="stat-grid" style={{ "--cols": 2 }}>
+        <Stat icon={CheckCircle2} tone="success" label="Scenes ready for teachers" value={loading ? "–" : `${publishedCount} of ${SCENE_LIST.length}`} />
+        <Stat icon={Users} tone="primary" label="Character sets" value={sets ? sets.length : "–"} />
+      </div>
 
-                <button
-                  onClick={() => navigate("/admin/character")}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    padding: "10px 18px",
-                    background: "transparent",
-                    color: colors.brassBright,
-                    border: `1px solid ${colors.brass}`,
-                    borderRadius: "16px",
-                    fontFamily: fonts.body,
-                    fontWeight: "600",
-                    fontSize: "13px",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <Palette size={15} /> Customize Character
-                </button>
-
-                {/* Drops the admin account into the real Teacher dashboard (room/campaign setup,
-                    lesson-module generation, the chat assistant) - see teacherOnly in
-                    server/middleware/auth.js, which now lets ADMIN through everywhere a TEACHER
-                    can go, so this needs no separate teacher test account. */}
-                <button
-                  onClick={() => navigate("/teacher/dashboard")}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    padding: "10px 18px",
-                    background: `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})`,
-                    color: "#FFFFFF",
-                    border: "none",
-                    borderRadius: "16px",
-                    fontFamily: fonts.body,
-                    fontWeight: "600",
-                    fontSize: "13px",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  <DoorOpen size={15} /> Teacher Mode
-                </button>
-              </div>
-            </div>
-            <p style={{ color: "#C9BBA6", fontFamily: fonts.body, fontSize: "14px", margin: "6px 0 0 0", maxWidth: "640px" }}>
-              Design the question-set structure for each vault. Once you publish a vault's template, every
-              teacher creating a campaign there must follow that same sequence of clue types — they'll fill in
-              the content, not the shape.
-            </p>
-
-            {loading ? (
-              <p style={{ fontFamily: fonts.flourish, fontSize: "16px", color: colors.brassBright, marginTop: "40px" }}>
-                Loading vaults...
-              </p>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "24px", marginTop: "32px" }}>
-                {SCENE_LIST.map((s) => {
-                  const template = templates[s.key];
-                  const status = statusFor(template);
-                  const meta = STATUS_META[status];
-                  const hovered = hoveredScene === s.key;
-
-                  return (
-                    <div
-                      key={s.key}
-                      onClick={() => navigate(`/admin/vault/${s.key}`)}
-                      onMouseEnter={() => setHoveredScene(s.key)}
-                      onMouseLeave={() => setHoveredScene(null)}
-                      style={{
-                        background: `linear-gradient(165deg, #241A10 0%, ${colors.obsidian} 100%)`,
-                        borderRadius: "20px",
-                        border: `1px solid ${hovered ? s.color : colors.vaultBorder}`,
-                        padding: "24px",
-                        minHeight: "180px",
-                        display: "flex",
-                        flexDirection: "column",
-                        justifyContent: "space-between",
-                        cursor: "pointer",
-                        boxShadow: hovered ? `0 10px 34px rgba(0,0,0,0.5), 0 0 22px ${s.color}44` : "0 10px 24px rgba(0,0,0,0.4)",
-                        transition: "border-color 0.25s, box-shadow 0.25s",
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <s.Icon size={26} color={hovered ? s.color : colors.brass} />
-                          <span
-                            style={{
-                              padding: "2px 10px",
-                              borderRadius: "10px",
-                              backgroundColor: meta.bg,
-                              color: meta.color,
-                              fontFamily: fonts.body,
-                              fontSize: "11px",
-                              fontWeight: "600",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {meta.label}
-                          </span>
-                        </div>
-                        <p style={{ fontFamily: fonts.display, fontWeight: "600", fontSize: "18px", color: colors.brassBright, margin: "14px 0 6px 0" }}>
-                          {s.label}
-                        </p>
-                        <p style={{ fontFamily: fonts.body, fontSize: "13px", color: "#B9AC96", margin: 0 }}>
-                          {template && template.slots.length > 0
-                            ? `${template.slots.length} clue${template.slots.length === 1 ? "" : "s"} in the set`
-                            : "No question set designed yet"}
-                        </p>
-                      </div>
-
-                      <button
-                        style={{
-                          width: "100%",
-                          padding: "10px",
-                          background: hovered ? `linear-gradient(160deg, ${colors.emberBright}, ${colors.ember})` : "transparent",
-                          color: hovered ? "white" : colors.brassBright,
-                          border: `1px solid ${colors.ember}`,
-                          borderRadius: "18px",
-                          fontFamily: fonts.body,
-                          fontWeight: "600",
-                          fontSize: "14px",
-                          cursor: "pointer",
-                          marginTop: "16px",
-                          transition: "background 0.25s, color 0.25s",
-                        }}
-                      >
-                        {status === "empty" ? "Design Question Set →" : "Edit Question Set →"}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+      <section className="section" aria-labelledby="vaults-heading">
+        <div className="section__head">
+          <div>
+            <h2 id="vaults-heading" className="section__title row" style={{ "--gap": "8px" }}>
+              <Layers size={20} aria-hidden="true" /> Question sets by scene
+            </h2>
+            <p className="text-sm text-muted">Once published, every campaign in that scene must follow its list of question types.</p>
           </div>
         </div>
-      </div>
+
+        {loading ? (
+          <SkeletonCards count={3} height={240} />
+        ) : (
+          templates && (
+            <div className="grid-cards">
+              {SCENE_LIST.map((s) => {
+                const template = templates[s.key];
+                const status = statusFor(template);
+                return (
+                  <Card key={s.key} hoverable className="vault-card" style={sceneStyle(s.key)} flush>
+                    <div className="vault-card__art" aria-hidden="true">
+                      <SceneArt scene={s.key} />
+                    </div>
+                    <div className="vault-card__body">
+                      <div className="row row-between">
+                        <h3 className="card__title row" style={{ "--gap": "6px" }}>
+                          <s.Icon size={18} aria-hidden="true" style={{ color: s.color }} /> {s.label}
+                        </h3>
+                        {status === "empty" ? <Badge>Not started</Badge> : <StatusChip status={status} />}
+                      </div>
+                      <p className="text-sm text-muted">
+                        {status === "empty"
+                          ? "No question set designed yet."
+                          : `${plural(template.slots.length, "entry", "entries")} · ${plural(template.standaloneNoteCount || 0, "additional note")}`}
+                      </p>
+                      <div className="card__footer">
+                        <Button variant="soft" block iconRight={ArrowRight} to={`/admin/vault/${s.key}`}>
+                          {status === "empty" ? "Design question set" : status === "published" ? "View question set" : "Edit question set"}
+                          <span className="sr-only"> for {s.label}</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )
+        )}
+      </section>
+
+      <section className="section" aria-labelledby="sets-heading">
+        <div className="section__head">
+          <h2 id="sets-heading" className="section__title row" style={{ "--gap": "8px" }}>
+            <Users size={20} aria-hidden="true" /> Character sets
+          </h2>
+          <Button variant="secondary" size="sm" iconRight={ArrowRight} to="/admin/character-sets">
+            Manage
+          </Button>
+        </div>
+        <Card>
+          {!sets ? (
+            <div className="skeleton" style={{ height: 40 }} aria-hidden="true" />
+          ) : sets.length === 0 ? (
+            <p className="text-sm text-muted">No character sets yet. Add one so players have something to wear.</p>
+          ) : (
+            <ul className="row" role="list" style={{ listStyle: "none" }}>
+              {sets.map((set, i) => (
+                <li key={set.id}>
+                  <Badge tone={i === 0 ? "accent" : "outline"} size="lg">
+                    {set.label}
+                    {i === 0 ? " · base" : ""}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </section>
     </div>
   );
 }

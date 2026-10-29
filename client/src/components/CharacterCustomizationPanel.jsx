@@ -1,78 +1,43 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Save } from 'lucide-react'
-import dashboard_bg from '../assets/dashboard_bg.png'
-import Navbar from './Navbar'
-import EmberField from './EmberField'
+import { ChevronLeft, ChevronRight, RotateCcw, Save, Shirt, Users } from 'lucide-react'
 import CharacterCustomizer3D from './CharacterCustomizer3D'
-import { colors, fonts } from '../theme'
+import { Alert, Breadcrumbs, Button, Card, EmptyState, IconButton, LoadingState, PageHeader } from './ui'
+import { useToast } from '../lib/toast'
 
 // The 4 fixed body-part slots every character set must be mapped against - matches Unity's own
 // CharacterPartRegistryAsset.BodyPartSlot enum exactly. Unlike the OPTIONS for each slot (which
 // are now admin-managed, see characterSets state below), this list itself isn't dynamic - adding
 // a 5th slot would need a matching change on the Unity side too, so it stays a plain constant.
 const SLOTS = ['Head', 'Body', 'Arm', 'Leg']
-
-// Two visual variants, matching the two color families already used across the site: the light
-// parchment/violet theme (Student pages) and the dark wood/obsidian/ember/brass theme (Teacher and
-// Admin pages). Only the colors and background change between them - the layout and behavior below
-// is identical for every caller.
-const THEMES = {
-    light: {
-        bgGradient: `radial-gradient(ellipse at 50% 0%, rgba(139,111,179,0.25), rgba(243,233,215,0.85)), url(${dashboard_bg})`,
-        emberVariant: 'sparkle',
-        panelBg: colors.parchmentDark,
-        panelBorder: `1px solid ${colors.magicViolet}55`,
-        accent: colors.magicViolet,
-        accentBright: colors.magicVioletBright,
-        textPrimary: colors.ink,
-        textMuted: colors.inkMuted,
-        controlBg: colors.parchmentPanel,
-        controlBorder: colors.parchmentLine,
-        errorColor: '#B33A3A',
-    },
-    dark: {
-        bgGradient: `radial-gradient(ellipse at 50% 0%, rgba(60,38,20,0.45), rgba(6,4,2,0.94)), url(${dashboard_bg})`,
-        emberVariant: 'ember',
-        panelBg: `linear-gradient(165deg, ${colors.wood} 0%, ${colors.obsidian} 100%)`,
-        panelBorder: `1px solid ${colors.vaultBorder}`,
-        accent: colors.ember,
-        accentBright: colors.emberBright,
-        textPrimary: colors.brassBright,
-        textMuted: '#C9BBA6',
-        controlBg: `linear-gradient(165deg, #241A10 0%, ${colors.obsidian} 100%)`,
-        controlBorder: colors.vaultBorder,
-        errorColor: '#E08585',
-    },
-}
+const SLOT_LABELS = { Head: 'Head', Body: 'Body', Arm: 'Arms', Leg: 'Legs' }
 
 // CharacterCustomizationPanel.jsx
 //
 // Shared character-customization screen, reused as-is by the Student, Teacher, and Admin
-// dashboards (only the theme, back-link, and header text differ between them - see the thin
-// wrapper pages in pages/student, pages/teacher, and pages/admin). Renders and saves the
-// character's look directly on the website with three.js - see CharacterCustomizer3D.jsx for the
-// 3D preview itself. The catalog of selectable characters comes from GET /api/character-sets
-// (admin-managed - see server/routes/characterSets.js and the Admin dashboard's Character Sets
-// page), not a hardcoded table, so adding a new option never needs a code change here. Saving
-// goes through the same GET/PUT /api/character-loadout endpoints regardless of which account is
-// signed in - those only ever deal in opaque optionId strings tied to req.user.id, so a teacher or
-// admin testing this saves their own look, never a student's.
+// dashboards (only the back-link and header text differ between them - see the thin wrapper
+// pages in pages/student, pages/teacher, and pages/admin; the role accent comes from the app
+// shell). Renders and saves the character's look directly on the website with three.js - see
+// CharacterCustomizer3D.jsx for the 3D preview itself. The catalog of selectable characters comes
+// from GET /api/character-sets (admin-managed - see server/routes/characterSets.js and the Admin
+// dashboard's Character Sets page), not a hardcoded table, so adding a new option never needs a
+// code change here. Saving goes through the same GET/PUT /api/character-loadout endpoints
+// regardless of which account is signed in - those only ever deal in opaque optionId strings tied
+// to req.user.id, so a teacher or admin testing this saves their own look, never a student's.
 function CharacterCustomizationPanel({
-    theme = 'light',
     backTo,
     breadcrumbLabel,
     sectionLabel,
-    title = 'Customize Character',
-    subtitle = 'Your look is saved to your account and carries into every room you enter. Drag the preview to rotate.',
+    title = 'Customize character',
+    subtitle = 'Your character is saved to your account and used in every room. Drag the preview to rotate it.',
 }) {
-    const navigate = useNavigate()
-    const t = THEMES[theme] || THEMES.light
+    const toast = useToast()
     const [characterSets, setCharacterSets] = useState([])
     const [selections, setSelections] = useState({})
+    const [savedSelections, setSavedSelections] = useState({})
     const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState("")
     const [saving, setSaving] = useState(false)
-    const [saveMessage, setSaveMessage] = useState("")
+    const [saveError, setSaveError] = useState("")
 
     // The selectable options for one slot, in characterSets order (lowest orderNumber first,
     // matching "Base" being first/default) - e.g. optionsFor("Head") => [{id: "head000", label:
@@ -98,6 +63,7 @@ function CharacterCustomizationPanel({
                     headers: { "Authorization": `Bearer ${token}` },
                 })
                 const sets = await setsRes.json()
+                if (!setsRes.ok) throw new Error(sets.message || "Couldn't load the character options")
                 const orderedSets = Array.isArray(sets) ? sets : []
                 setCharacterSets(orderedSets)
 
@@ -121,14 +87,18 @@ function CharacterCustomizationPanel({
                     }
                 }
                 setSelections(next)
+                setSavedSelections(next)
             } catch (err) {
                 console.error("[CharacterCustomizationPanel] Failed to load character sets/loadout:", err)
+                setLoadError(err.message === "Failed to fetch" ? "Couldn't reach the server. Check your connection." : err.message)
             } finally {
                 setLoading(false)
             }
         }
         load()
     }, [])
+
+    const select = (slot, optionId) => setSelections((prev) => ({ ...prev, [slot]: optionId }))
 
     // Steps one slot to its next/previous option, wrapping around at either end - same cycling
     // behavior CharacterCustomizationUIController.cs used on the Unity side.
@@ -137,12 +107,14 @@ function CharacterCustomizationPanel({
         if (options.length === 0) return
         const currentIndex = options.findIndex((o) => o.id === selections[slot])
         const nextIndex = ((currentIndex + direction) % options.length + options.length) % options.length
-        setSelections((prev) => ({ ...prev, [slot]: options[nextIndex].id }))
+        select(slot, options[nextIndex].id)
     }
+
+    const dirty = SLOTS.some((slot) => selections[slot] !== savedSelections[slot])
 
     const handleSave = async () => {
         setSaving(true)
-        setSaveMessage("")
+        setSaveError("")
         const token = localStorage.getItem("token")
         try {
             const res = await fetch(`${import.meta.env.VITE_API_URL}/api/character-loadout`, {
@@ -154,102 +126,97 @@ function CharacterCustomizationPanel({
                 const data = await res.json().catch(() => ({}))
                 throw new Error(data.message || "Could not save your look")
             }
-            setSaveMessage("Saved!")
+            setSavedSelections(selections)
+            toast.success("Your character is saved.")
         } catch (err) {
-            setSaveMessage(err.message)
+            setSaveError(err.message === "Failed to fetch" ? "Couldn't reach the server. Your changes aren't saved yet." : err.message)
         } finally {
             setSaving(false)
         }
     }
 
+    const empty = !loading && !loadError && characterSets.length === 0
+
     return (
-        <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-            <Navbar />
+        <div className="page">
+            <PageHeader
+                breadcrumbs={<Breadcrumbs items={[{ label: breadcrumbLabel, to: backTo }, { label: "Character" }]} />}
+                eyebrow={sectionLabel}
+                title={title}
+                description={subtitle}
+            />
 
-            {/* Background div */}
-            <div style={{ position: "relative", display: "flex", minHeight: "100vh", backgroundImage: t.bgGradient, backgroundSize: "cover", backgroundPosition: "center" }}>
+            {loadError && <Alert tone="danger" title="We couldn't load the character options">{loadError}</Alert>}
 
-                <EmberField variant={t.emberVariant} count={22} />
+            {empty && (
+                <EmptyState icon={Users} title="No characters available yet">
+                    An administrator needs to add character sets first.
+                </EmptyState>
+            )}
 
-                {/* Main panel */}
-                <div style={{ position: "relative", background: t.panelBg, flex: 1, borderRadius: "24px", margin: "20px", boxShadow: "0 20px 50px rgba(0,0,0,0.25)", border: t.panelBorder }}>
-                    <div style={{ padding: "40px" }}>
+            {!loadError && !empty && (
+                <div className="customizer">
+                    <Card className="customizer__preview" flush>
+                        {loading ? (
+                            <LoadingState label="Loading your character..." />
+                        ) : (
+                            <CharacterCustomizer3D characterSets={characterSets} selections={selections} />
+                        )}
+                        <p className="customizer__hint text-xs">Drag to rotate</p>
+                    </Card>
 
-                        {/* Breadcrumb */}
-                        <p onClick={() => navigate(backTo)} style={{ cursor: "pointer", color: t.accent, fontFamily: fonts.body, fontSize: "14px", marginBottom: "16px" }}>
-                            {breadcrumbLabel} &gt; Customize Character
-                        </p>
-
-                        {/* Header */}
-                        <div style={{ marginBottom: "24px" }}>
-                            <p style={{ margin: "0 0 4px 0", fontFamily: fonts.flourish, fontSize: "12px", letterSpacing: "3px", color: t.accent }}>
-                                {sectionLabel}
-                            </p>
-                            <h1 style={{ fontFamily: fonts.displayDecorative, fontSize: "32px", color: t.textPrimary, margin: 0 }}>{title}</h1>
-                            <p style={{ fontFamily: fonts.body, fontSize: "14px", color: t.textMuted, margin: "6px 0 0 0" }}>
-                                {subtitle}
-                            </p>
-                        </div>
-
-                        <div style={{ display: "flex", gap: "32px", alignItems: "flex-start", flexWrap: "wrap" }}>
-
-                            {/* 3D preview */}
-                            <div style={{ width: "480px", height: "560px", borderRadius: "20px", overflow: "hidden", flexShrink: 0 }}>
-                                {loading ? (
-                                    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: t.textMuted, fontFamily: fonts.body, fontSize: "13px" }}>
-                                        Loading your look...
-                                    </div>
-                                ) : (
-                                    <CharacterCustomizer3D characterSets={characterSets} selections={selections} />
-                                )}
-                            </div>
-
-                            {/* Slot controls */}
-                            <div style={{ flex: 1, minWidth: "260px", display: "flex", flexDirection: "column", gap: "16px" }}>
-                                {SLOTS.map((slot) => {
-                                    const options = optionsFor(slot)
-                                    const current = options.find((o) => o.id === selections[slot])
-                                    return (
-                                        <div key={slot} style={{ background: t.controlBg, borderRadius: "18px", border: `1px solid ${t.controlBorder}`, padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                                            <p style={{ fontFamily: fonts.body, fontWeight: "600", fontSize: "14px", color: t.textPrimary, margin: 0 }}>{slot}</p>
-                                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                                                <button
-                                                    onClick={() => step(slot, -1)}
-                                                    style={{ background: "transparent", border: `1px solid ${t.accent}`, borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", color: t.accent, cursor: "pointer" }}
-                                                >
-                                                    <ChevronLeft size={16} />
-                                                </button>
-                                                <p style={{ fontFamily: fonts.body, fontSize: "14px", color: t.textMuted, margin: 0, minWidth: "70px", textAlign: "center" }}>{current?.label}</p>
-                                                <button
-                                                    onClick={() => step(slot, 1)}
-                                                    style={{ background: "transparent", border: `1px solid ${t.accent}`, borderRadius: "50%", width: "32px", height: "32px", display: "flex", alignItems: "center", justifyContent: "center", color: t.accent, cursor: "pointer" }}
-                                                >
-                                                    <ChevronRight size={16} />
-                                                </button>
-                                            </div>
+                    <div className="customizer__controls stack">
+                        {SLOTS.map((slot) => {
+                            const options = optionsFor(slot)
+                            const current = options.find((o) => o.id === selections[slot])
+                            return (
+                                <Card key={slot} as="fieldset" className="slot-picker" disabled={loading || saving}>
+                                    <legend className="sr-only">{SLOT_LABELS[slot]}</legend>
+                                    <div className="row row-between row-nowrap">
+                                        <span className="slot-picker__legend" aria-hidden="true">
+                                            <Shirt size={16} /> {SLOT_LABELS[slot]}
+                                        </span>
+                                        <div className="row row-nowrap" style={{ "--gap": "4px" }}>
+                                            <IconButton icon={ChevronLeft} size="sm" variant="secondary" label={`Previous ${SLOT_LABELS[slot].toLowerCase()} option`} onClick={() => step(slot, -1)} disabled={options.length < 2} />
+                                            <IconButton icon={ChevronRight} size="sm" variant="secondary" label={`Next ${SLOT_LABELS[slot].toLowerCase()} option`} onClick={() => step(slot, 1)} disabled={options.length < 2} />
                                         </div>
-                                    )
-                                })}
+                                    </div>
+                                    {options.length === 0 ? (
+                                        <p className="text-sm text-muted">No options for this part yet.</p>
+                                    ) : (
+                                        <div className="option-chips" role="radiogroup" aria-label={`${SLOT_LABELS[slot]} options`}>
+                                            {options.map((o) => (
+                                                <label key={o.id} className="option-chip" data-selected={o.id === current?.id}>
+                                                    <input
+                                                        type="radio"
+                                                        className="sr-only"
+                                                        name={`slot-${slot}`}
+                                                        value={o.id}
+                                                        checked={o.id === current?.id}
+                                                        onChange={() => select(slot, o.id)}
+                                                    />
+                                                    {o.label}
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </Card>
+                            )
+                        })}
 
-                                <button
-                                    onClick={handleSave}
-                                    disabled={saving}
-                                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", background: `linear-gradient(160deg, ${t.accentBright}, ${t.accent})`, color: "#FFFFFF", border: "none", borderRadius: "18px", padding: "12px 24px", fontFamily: fonts.body, fontWeight: "600", fontSize: "16px", cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1, marginTop: "8px" }}
-                                >
-                                    <Save size={16} /> {saving ? "Saving..." : "Save Look"}
-                                </button>
+                        {saveError && <Alert tone="danger">{saveError}</Alert>}
 
-                                {saveMessage && (
-                                    <p style={{ fontFamily: fonts.body, fontSize: "13px", color: saveMessage === "Saved!" ? t.accent : t.errorColor, margin: 0 }}>
-                                        {saveMessage}
-                                    </p>
-                                )}
-                            </div>
+                        <div className="customizer__actions">
+                            <Button variant="secondary" icon={RotateCcw} onClick={() => setSelections(savedSelections)} disabled={!dirty || saving}>
+                                Undo changes
+                            </Button>
+                            <Button variant="accent" icon={Save} onClick={handleSave} loading={saving} disabled={loading || !dirty}>
+                                {saving ? "Saving..." : dirty ? "Save" : "Saved"}
+                            </Button>
                         </div>
-
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     )
 }

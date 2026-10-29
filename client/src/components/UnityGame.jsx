@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { Maximize2 } from "lucide-react"
 
 // UnityGame.jsx
 //
@@ -60,7 +61,7 @@ const BUILD_FOLDER = "unitybuild"
 // client/public/unitybuild/Build/ if this ever drifts.
 const BUILD_NAME = "unitybuild"
 
-function UnityGame({ token, roomId, onError, onRunFinished }) {
+function UnityGame({ token, roomId, onError, onRunFinished, onStatusChange }) {
     const canvasRef = useRef(null)
     const containerRef = useRef(null)
     const instanceRef = useRef(null)
@@ -178,75 +179,67 @@ function UnityGame({ token, roomId, onError, onRunFinished }) {
         }
     }, [token, roomId])
 
+    // Lets the page around the game react to the real lifecycle (e.g. only ask
+    // "leave the campaign?" once the game is actually running).
+    const onStatusChangeRef = useRef(onStatusChange)
+    useEffect(() => {
+        onStatusChangeRef.current = onStatusChange
+    })
+    useEffect(() => {
+        onStatusChangeRef.current?.(status)
+    }, [status])
+
+    const pct = Math.round(progress * 100)
+
     return (
         <div
             ref={containerRef}
-            style={{
-                position: "relative",
-                background: "#000",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                // Only fullscreen actually needs to span/center within the
-                // viewport - windowed stays exactly as before (a normal,
-                // in-page 960px-max box).
-                ...(isFullscreen
-                    ? { width: "100vw", height: "100vh", justifyContent: "center" }
-                    : { width: "100%", maxWidth: "960px" }),
-            }}
+            className="unity-frame"
+            data-fullscreen={isFullscreen || undefined}
         >
             {/* The 16:9 "stage" - see FULLSCREEN above for how this sizes
                 itself to fit the screen without ever distorting the ratio. */}
-            <div
-                style={{
-                    position: "relative",
-                    aspectRatio: "16 / 9",
-                    width: isFullscreen ? "min(100vw, 100vh * 16 / 9)" : "100%",
-                    height: isFullscreen ? "min(100vh, 100vw * 9 / 16)" : "auto",
-                }}
-            >
+            <div className="unity-frame__stage">
                 <canvas
                     id="unity-canvas"
                     ref={canvasRef}
-                    style={{
-                        width: "100%",
-                        height: "100%",
-                        display: status === "ready" ? "block" : "none",
-                        background: "#000",
-                        borderRadius: "12px",
-                    }}
+                    tabIndex={-1}
+                    aria-label="Game"
+                    className="unity-frame__canvas"
+                    style={{ display: status === "ready" ? "block" : "none" }}
                 />
 
                 {status === "loading" && (
-                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#EDE3D0", fontFamily: "monospace", fontSize: "13px" }}>
-                        Loading the game... {Math.round(progress * 100)}%
+                    <div className="unity-frame__overlay" role="status" aria-live="polite">
+                        <div className="unity-loader" aria-hidden="true">
+                            <span /><span /><span />
+                        </div>
+                        <p className="unity-frame__label">{pct < 100 ? "Loading the game..." : "Almost there..."}</p>
+                        <div
+                            className="unity-frame__track"
+                            role="progressbar"
+                            aria-label="Game loading progress"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={pct}
+                        >
+                            <span style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="unity-frame__pct">{pct}%</p>
                     </div>
                 )}
 
                 {status === "error" && (
-                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#E08080", fontFamily: "monospace", fontSize: "13px", textAlign: "center", padding: "20px" }}>
-                        Failed to load the game. Check the browser console for details.
+                    <div className="unity-frame__overlay" role="alert">
+                        <p className="unity-frame__label">The game couldn't load.</p>
+                        <p className="unity-frame__pct">Check your connection, then return to the room and try again.</p>
                     </div>
                 )}
             </div>
 
             {status === "ready" && !isFullscreen && (
-                <button
-                    onClick={enterFullscreen}
-                    style={{
-                        alignSelf: "flex-end",
-                        marginTop: "8px",
-                        padding: "6px 14px",
-                        background: "transparent",
-                        border: "1px solid #EDE3D0",
-                        borderRadius: "6px",
-                        color: "#EDE3D0",
-                        fontFamily: "monospace",
-                        fontSize: "13px",
-                        cursor: "pointer",
-                    }}
-                >
-                    Fullscreen
+                <button type="button" onClick={enterFullscreen} className="btn btn--secondary btn--sm unity-frame__fs">
+                    <Maximize2 size={15} aria-hidden="true" /> Fullscreen
                 </button>
             )}
         </div>

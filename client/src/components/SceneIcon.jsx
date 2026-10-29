@@ -1,33 +1,18 @@
 import { getSceneMeta } from "../scenes";
-import { fonts } from "../theme";
+import { Badge } from "./ui";
 
 export function SceneIcon({ scene, size = 18 }) {
   const { Icon, color } = getSceneMeta(scene);
-  return <Icon size={size} color={color} strokeWidth={2} />;
+  return <Icon size={size} color={color} strokeWidth={2} aria-hidden="true" />;
 }
 
-export function SceneBadge({ scene }) {
-  const { Icon, color, label } = getSceneMeta(scene);
+// Scene label pill - icon + name, tinted with the scene's color pair.
+export function SceneBadge({ scene, size }) {
+  const meta = getSceneMeta(scene);
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        padding: "3px 10px",
-        borderRadius: "10px",
-        backgroundColor: `${color}22`,
-        border: `1px solid ${color}55`,
-        color,
-        fontFamily: fonts.body,
-        fontSize: "11px",
-        fontWeight: "600",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <Icon size={12} color={color} />
-      {label}
-    </span>
+    <Badge tone={meta.key || "neutral"} icon={meta.Icon} size={size}>
+      {meta.label}
+    </Badge>
   );
 }
 

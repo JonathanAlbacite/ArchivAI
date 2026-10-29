@@ -5,7 +5,8 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // Unity WebGL build output is generated code, not ours to lint.
+  globalIgnores(['dist', 'public/unitybuild', 'public/customizerbuild']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
