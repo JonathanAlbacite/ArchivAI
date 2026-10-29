@@ -222,6 +222,8 @@ model CampaignProgress {
   studentId            Int
   lastCheckpointId     String?
   reachedCheckpointIds Json
+  worldState           String?  @db.LongText // JSON text from the game: locks, items, journal and run time at the last checkpoint
+  journalIds           Json?    // ids of the clues and notes found so far, saved the moment each is found (not tied to a checkpoint)
   status               String   @default("IN_PROGRESS") // "IN_PROGRESS" or "COMPLETED"
   startedAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

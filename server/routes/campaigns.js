@@ -731,10 +731,11 @@ router.post("/campaigns/:id/results", protect, async (req, res) => {
       include: { attempts: true },
     });
 
-    // The run is finished, so the saved checkpoint progress is marked completed.
+    // The run is finished, so the saved checkpoint progress is marked completed. The saved world
+    // state and journal are no longer needed (a finished campaign starts again from the beginning).
     await prisma.campaignProgress.updateMany({
       where: { campaignId, studentId: req.user.id },
-      data: { status: "COMPLETED" },
+      data: { status: "COMPLETED", worldState: null, journalIds: null },
     });
 
     res.status(201).json(session);
@@ -795,6 +796,8 @@ router.get("/campaigns/:id/progress", protect, async (req, res) => {
       status: progress.status,
       lastCheckpointId: progress.lastCheckpointId,
       reachedCheckpointIds: Array.isArray(progress.reachedCheckpointIds) ? progress.reachedCheckpointIds : [],
+      worldState: progress.worldState || "",
+      journalIds: Array.isArray(progress.journalIds) ? progress.journalIds : [],
       updatedAt: progress.updatedAt,
     });
   } catch (err) {
@@ -802,12 +805,20 @@ router.get("/campaigns/:id/progress", protect, async (req, res) => {
   }
 });
 
+// The game's world state (locks, items, journal, run time) is a small JSON text, a few KB for a
+// normal campaign. Anything much bigger is refused instead of being cut, because half of a
+// snapshot would be worse than none.
+const MAX_WORLD_STATE_LENGTH = 50000;
+
 // Unity: Save the logged-in user's checkpoint progress (called each time a checkpoint is reached;
 // any role that can play the game). The user is taken from the token, never from the request body. A finished run that is
 // played again goes back to IN_PROGRESS with the new checkpoints.
+// worldState is the game's snapshot of the world at this checkpoint. It is saved together with the
+// checkpoint and always replaced, so the two never come from different moments (a request without
+// one clears the old snapshot).
 router.put("/campaigns/:id/progress", protect, async (req, res) => {
   const campaignId = parseInt(req.params.id);
-  const { lastCheckpointId, reachedCheckpointIds } = req.body;
+  const { lastCheckpointId, reachedCheckpointIds, worldState } = req.body;
 
   try {
     const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
@@ -818,6 +829,11 @@ router.put("/campaigns/:id/progress", protect, async (req, res) => {
       : [];
     const last = typeof lastCheckpointId === "string" && lastCheckpointId ? lastCheckpointId : null;
 
+    if (typeof worldState === "string" && worldState.length > MAX_WORLD_STATE_LENGTH) {
+      return res.status(413).json({ message: "The saved world state is too large" });
+    }
+    const world = typeof worldState === "string" && worldState ? worldState : null;
+
     const progress = await prisma.campaignProgress.upsert({
       where: { campaignId_studentId: { campaignId, studentId: req.user.id } },
       create: {
@@ -825,11 +841,13 @@ router.put("/campaigns/:id/progress", protect, async (req, res) => {
         studentId: req.user.id,
         lastCheckpointId: last,
         reachedCheckpointIds: ids,
+        worldState: world,
         status: "IN_PROGRESS",
       },
       update: {
         lastCheckpointId: last,
         reachedCheckpointIds: ids,
+        worldState: world,
         status: "IN_PROGRESS",
       },
     });
@@ -841,6 +859,65 @@ router.put("/campaigns/:id/progress", protect, async (req, res) => {
       reachedCheckpointIds: ids,
       updatedAt: progress.updatedAt,
     });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// How many journal ids one save may hold, and how long one id may be. A campaign has a few dozen
+// clues and notes at most, so anything bigger is cut instead of stored.
+const MAX_JOURNAL_IDS = 500;
+const MAX_JOURNAL_ID_LENGTH = 100;
+
+// Unity: Save the ids of the clues and notes the logged-in user has found (any role that can play
+// the game). Called the moment an item is collected, so it needs no checkpoint: the progress row is
+// created here if it does not exist yet (with no checkpoint). The whole list is sent every time and
+// replaces the old one. A row that is COMPLETED belongs to a finished run, so this call starts the
+// replay by putting the row back to a fresh IN_PROGRESS state before saving.
+router.put("/campaigns/:id/journal", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+  const { journalIds } = req.body;
+
+  try {
+    const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+    if (!campaign) return res.status(404).json({ message: "Campaign not found" });
+
+    const ids = Array.isArray(journalIds)
+      ? journalIds
+          .filter((id) => typeof id === "string" && id && id.length <= MAX_JOURNAL_ID_LENGTH)
+          .slice(0, MAX_JOURNAL_IDS)
+      : [];
+
+    const where = { campaignId_studentId: { campaignId, studentId: req.user.id } };
+    const existing = await prisma.campaignProgress.findUnique({ where });
+
+    if (!existing) {
+      await prisma.campaignProgress.create({
+        data: {
+          campaignId,
+          studentId: req.user.id,
+          lastCheckpointId: null,
+          reachedCheckpointIds: [],
+          journalIds: ids,
+          status: "IN_PROGRESS",
+        },
+      });
+    } else if (existing.status === "COMPLETED") {
+      await prisma.campaignProgress.update({
+        where,
+        data: {
+          lastCheckpointId: null,
+          reachedCheckpointIds: [],
+          worldState: null,
+          journalIds: ids,
+          status: "IN_PROGRESS",
+        },
+      });
+    } else {
+      await prisma.campaignProgress.update({ where, data: { journalIds: ids } });
+    }
+
+    res.json({ journalIds: ids });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
