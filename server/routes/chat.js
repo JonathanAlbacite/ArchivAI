@@ -8,7 +8,9 @@ import {
   WRITE_TOOL_NAMES,
   toolImplementations,
   buildDeleteConfirmationSummary,
+  VALID_SCENES,
 } from "../lib/teacherChatTools.js";
+import { refreshSceneNames } from "../lib/environments.js";
 
 const router = express.Router();
 
@@ -246,6 +248,14 @@ router.post("/start", protect, teacherOnly, async (req, res) => {
 // shape, so nothing below needs to branch on the provider.
 const runToolLoop = async (conversationId, teacherId, messages) => {
   let callCount = 0;
+
+  // The scene names in the tool definitions are the environments the admin has set up right now.
+  // If the lookup fails the names from the last request are kept.
+  try {
+    await refreshSceneNames(VALID_SCENES);
+  } catch (err) {
+    console.error("[chat] Could not refresh the environment names:", err);
+  }
 
   while (true) {
     let result;

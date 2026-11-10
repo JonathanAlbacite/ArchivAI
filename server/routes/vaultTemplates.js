@@ -2,22 +2,30 @@ import express from "express";
 import prisma from "../lib/prisma.js";
 import { protect, adminOnly } from "../middleware/auth.js";
 import { exportVaultTemplatesSnapshot } from "../lib/vaultTemplatesExport.js";
+import { listEnvironments, resolveSceneKey, sceneNamesText } from "../lib/environments.js";
 
 const router = express.Router();
 
-// Matches the keys in client/src/scenes.js (SCENE_LIST) - Campaign.scene
-// is stored lowercase, so VaultTemplate.scene is too, to look up straight
-// from a campaign's own scene value with no case juggling.
-export const VALID_SCENES = ["laboratory", "library", "tomb"];
+// The scenes are the Environment rows the admin manages (see lib/environments.js).
+// Campaign.scene is stored as the environment's lowercase key, so VaultTemplate.scene is too, to
+// look up straight from a campaign's own scene value with no case juggling.
 const VALID_TYPES = ["NORMAL", "MULTICHOICE", "COMBO"];
 // Most additional notes (standalone hints) a vault can ask for.
 export const MAX_STANDALONE_NOTES = 10;
 
-const normalizeScene = (scene) => VALID_SCENES.find((s) => s === (scene || "").toLowerCase().trim()) || null;
+// The environment key a scene value stands for, or null if it is not one of the environments.
+// A database error counts as "not found" here, because this runs before each route's own try/catch.
+const normalizeScene = async (scene) => {
+  try {
+    return await resolveSceneKey(scene);
+  } catch {
+    return null;
+  }
+};
 
 // Admin: list every vault's template, including vaults with no template
 // row yet (returned as an empty/unpublished stub), so the dashboard can
-// always show all three vaults.
+// always show every environment.
 router.get("/admin/vault-templates", protect, adminOnly, async (req, res) => {
   try {
     const templates = await prisma.vaultTemplate.findMany({
@@ -25,9 +33,10 @@ router.get("/admin/vault-templates", protect, adminOnly, async (req, res) => {
     });
     const byScene = Object.fromEntries(templates.map((t) => [t.scene, t]));
 
+    const environments = await listEnvironments();
     res.json(
-      VALID_SCENES.map(
-        (scene) => byScene[scene] || { id: null, scene, isPublished: false, standaloneNoteCount: 0, slots: [] }
+      environments.map(
+        ({ key: scene }) => byScene[scene] || { id: null, scene, isPublished: false, standaloneNoteCount: 0, slots: [] }
       )
     );
   } catch (err) {
@@ -38,8 +47,8 @@ router.get("/admin/vault-templates", protect, adminOnly, async (req, res) => {
 // Admin: fetch one vault's template (returns a stub, doesn't create a row,
 // if none exists yet).
 router.get("/admin/vault-templates/:scene", protect, adminOnly, async (req, res) => {
-  const scene = normalizeScene(req.params.scene);
-  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+  const scene = await normalizeScene(req.params.scene);
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${await sceneNamesText()}` });
 
   try {
     const template = await prisma.vaultTemplate.findUnique({
@@ -57,8 +66,8 @@ router.get("/admin/vault-templates/:scene", protect, adminOnly, async (req, res)
 // locked, same one-way idea as Campaign.isPublished elsewhere; unpublish
 // first (see below) to make more changes.
 router.put("/admin/vault-templates/:scene", protect, adminOnly, async (req, res) => {
-  const scene = normalizeScene(req.params.scene);
-  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+  const scene = await normalizeScene(req.params.scene);
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${await sceneNamesText()}` });
 
   const { slots, standaloneNoteCount } = req.body;
   if (!Array.isArray(slots) || slots.length === 0)
@@ -115,8 +124,8 @@ router.put("/admin/vault-templates/:scene", protect, adminOnly, async (req, res)
 // Admin: publish a vault's template - this is what makes it the required
 // structure teachers must follow when creating a campaign in that scene.
 router.patch("/admin/vault-templates/:scene/publish", protect, adminOnly, async (req, res) => {
-  const scene = normalizeScene(req.params.scene);
-  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+  const scene = await normalizeScene(req.params.scene);
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${await sceneNamesText()}` });
 
   try {
     const template = await prisma.vaultTemplate.findUnique({ where: { scene }, include: { slots: true } });
@@ -143,8 +152,8 @@ router.patch("/admin/vault-templates/:scene/publish", protect, adminOnly, async 
 // campaign already created under the structure it published earlier; only
 // new campaigns in this scene are affected once it's republished.
 router.patch("/admin/vault-templates/:scene/unpublish", protect, adminOnly, async (req, res) => {
-  const scene = normalizeScene(req.params.scene);
-  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+  const scene = await normalizeScene(req.params.scene);
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${await sceneNamesText()}` });
 
   try {
     const template = await prisma.vaultTemplate.findUnique({ where: { scene } });
@@ -170,8 +179,8 @@ router.patch("/admin/vault-templates/:scene/unpublish", protect, adminOnly, asyn
 // is. 404 means no template has been published yet for this vault -
 // campaign creation there is blocked until one is.
 router.get("/vault-templates/:scene/published", protect, async (req, res) => {
-  const scene = normalizeScene(req.params.scene);
-  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+  const scene = await normalizeScene(req.params.scene);
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${await sceneNamesText()}` });
 
   try {
     const template = await prisma.vaultTemplate.findUnique({

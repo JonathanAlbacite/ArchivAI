@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, ArrowLeft, ArrowRight, Check, CheckCircle2, FileText, Paperclip, Rocket, Save, Sparkles, X } from "lucide-react";
 import { SceneArt } from "../../Illustrations";
 import { Alert, Badge, Button, ConfirmDialog, Modal, Spinner, TextAreaField, TextField, HelpTip } from "../../ui";
-import { SCENE_LIST, getSceneMeta, sceneStyle } from "../../../scenes";
+import { getSceneMeta, sceneStyle, useEnvironments } from "../../../scenes";
 import { api, errorMessage } from "../../../lib/api";
 import { useToast } from "../../../lib/toast";
 import EntryForm from "./EntryForm";
@@ -39,6 +39,7 @@ const SAVE_PHASES = {
 // create to update. Only reachable for drafts with no play history (RoomPage
 // only offers Edit then) - the server enforces that too.
 function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
+  const environments = useEnvironments();
   const isEditing = !!campaign;
   const toast = useToast();
   const [title, setTitle] = useState(campaign?.title || "");
@@ -571,7 +572,7 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
         </legend>
         {isEditing && <p className="field__hint">A saved campaign keeps its scene. To use another scene, create a new campaign.</p>}
         <div className="scene-picker__grid">
-          {SCENE_LIST.map((s) => {
+          {environments.map((s) => {
             const selected = scene === s.key;
             return (
               <label key={s.key} className="scene-option" data-selected={selected} data-disabled={isEditing && !selected} style={sceneStyle(s.key)}>

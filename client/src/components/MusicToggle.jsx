@@ -11,7 +11,9 @@ function MusicToggle() {
   const current = tracks.find((t) => t.id === trackId);
 
   const status = unavailable
-    ? `${current?.label} is unavailable`
+    ? current
+      ? `${current.label} is unavailable`
+      : "No tracks available"
     : playing
       ? `Playing ${current?.label}`
       : waiting

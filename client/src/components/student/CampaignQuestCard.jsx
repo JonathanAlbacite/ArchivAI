@@ -2,7 +2,7 @@ import { Eye, Paperclip, Play, RotateCcw, StepForward } from "lucide-react";
 import { SceneArt } from "../Illustrations";
 import { SceneBadge } from "../SceneIcon";
 import { Button, RankMedal, Skeleton, StatusChip } from "../ui";
-import { sceneStyle } from "../../scenes";
+import { sceneStyle, useEnvironments } from "../../scenes";
 import { formatDuration } from "../../lib/format";
 
 const ACTION = {
@@ -15,6 +15,7 @@ const ACTION = {
 // (null while loading). The rank shown is the game's rank from the latest
 // finished run - the API keeps only the latest, so it's labelled that way.
 function CampaignQuestCard({ campaign, number, status, starting, disabled, onPlay, onPreviewAttachment }) {
+  useEnvironments();
   const state = status?.state || "notStarted";
   const action = ACTION[state];
   const run = status?.run;

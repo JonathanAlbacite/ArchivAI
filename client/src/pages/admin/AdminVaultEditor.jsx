@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowDown, ArrowUp, Lock, Plus, Rocket, Save, Trash2, Unlock } from "lucide-react";
 import { Alert, Badge, Breadcrumbs, Button, Card, ConfirmDialog, EmptyState, IconButton, LoadingState, PageHeader, StatusChip, TextField } from "../../components/ui";
-import { getSceneMeta, sceneStyle } from "../../scenes";
+import { getSceneMeta, sceneStyle, useEnvironments } from "../../scenes";
 import { api, errorMessage } from "../../lib/api";
 import { clearSession } from "../../lib/session";
 import { useToast } from "../../lib/toast";
@@ -26,6 +26,7 @@ function AdminVaultEditor() {
   const { scene } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  useEnvironments();
   const meta = getSceneMeta(scene);
 
   const [slots, setSlots] = useState([]);

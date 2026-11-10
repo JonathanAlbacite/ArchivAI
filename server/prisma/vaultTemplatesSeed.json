@@ -1,5 +1,14 @@
 [
   {
+    "scene": "laboratory",
+    "isPublished": true,
+    "standaloneNoteCount": 0,
+    "slots": [
+      "NORMAL",
+      "NORMAL"
+    ]
+  },
+  {
     "scene": "library",
     "isPublished": true,
     "standaloneNoteCount": 10,

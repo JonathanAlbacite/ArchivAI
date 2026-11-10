@@ -1190,3 +1190,36 @@ select.input {
     display: none;
   }
 }
+
+/* Admin: add / edit an environment (icon picker, colour, preview). */
+.env-field { border: 0; margin: 0; padding: 0; min-width: 0; }
+.env-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: var(--space-2); margin-top: var(--space-2); }
+.env-icon-option {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.env-icon-option:hover { background: var(--color-surface-muted); color: var(--color-text); }
+.env-icon-option[data-selected="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.env-icon-option:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.env-color-input {
+  width: 48px;
+  height: 36px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+.env-color-input:disabled { opacity: 0.4; cursor: not-allowed; }
+.env-preview { display: flex; align-items: center; gap: var(--space-3); }

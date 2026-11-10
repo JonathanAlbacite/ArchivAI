@@ -4,7 +4,7 @@ import UnityGame from "../UnityGame";
 import { SceneBadge } from "../SceneIcon";
 import { Badge, Button, ConfirmDialog } from "../ui";
 import { getToken } from "../../lib/session";
-import { sceneStyle } from "../../scenes";
+import { sceneStyle, useEnvironments } from "../../scenes";
 import { useSuspendMusic } from "../../lib/music";
 
 // Full-window game view shared by the student room (play) and the teacher
@@ -15,6 +15,7 @@ import { useSuspendMusic } from "../../lib/music";
 // invisible in fullscreen). The room's active campaign must
 // already be set server-side before this mounts (see handlePlay on each page).
 function GameStage({ campaign, roomId, preview = false, onExit, onError, onRunFinished }) {
+  useEnvironments();
   const [status, setStatus] = useState("loading");
   const [confirmLeave, setConfirmLeave] = useState(false);
   // The game has its own sound, so the site music pauses while it is open.

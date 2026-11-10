@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  DEFAULT_MUSIC_TRACKS,
   MusicContext,
   MUSIC_STORAGE_KEY,
   MUSIC_TRACK_STORAGE_KEY,
-  MUSIC_TRACKS,
   MUSIC_VOLUME,
   readStoredMusic,
   readStoredTrack,
+  toPlayerTrack,
 } from "../lib/music";
+import { api } from "../lib/api";
 
 const save = (key, value) => {
   try {
@@ -17,11 +19,14 @@ const save = (key, value) => {
   }
 };
 
-const trackById = (id) => MUSIC_TRACKS.find((t) => t.id === id) || MUSIC_TRACKS[0];
-
 // One looping <audio> for the whole site, so the track keeps playing across
 // page changes. Off by default; the on/off choice and the chosen track are
 // remembered per browser.
+//
+// The list of tracks is managed by the admin and loaded from the server (see
+// refreshTracks). Until it arrives, or if the server can't be reached, the
+// four built-in tracks are used. If this browser's remembered track is no longer
+// in the list (deleted or hidden by the admin), the first track plays instead.
 //
 // Browsers only allow sound after the visitor interacts with the page. If the
 // music was left on last visit it is "waiting": it starts on the first click
@@ -30,8 +35,12 @@ const trackById = (id) => MUSIC_TRACKS.find((t) => t.id === id) || MUSIC_TRACKS[
 function MusicProvider({ children }) {
   const audioRef = useRef(null);
   const [enabled, setEnabled] = useState(readStoredMusic);
-  const [trackId, setTrackId] = useState(readStoredTrack);
-  const trackRef = useRef(trackId);
+  const [tracks, setTracks] = useState(DEFAULT_MUSIC_TRACKS);
+  // What this browser chose last. It may not be in `tracks` any more - see currentTrack below.
+  const [chosenId, setChosenId] = useState(readStoredTrack);
+  // False until the first attempt to load the track list has finished, so a remembered track that
+  // is not one of the built-in four doesn't start Track 1 for a moment first.
+  const [listReady, setListReady] = useState(false);
   const [suspendCount, setSuspendCount] = useState(0);
   const [playing, setPlaying] = useState(false);
   // Tracks whose file couldn't be loaded or decoded (e.g. not added yet).
@@ -39,8 +48,33 @@ function MusicProvider({ children }) {
   // When the first-interaction listener last started the music (see toggle).
   const gestureStartRef = useRef(0);
 
+  // The track that actually plays: the chosen one, or the first if it isn't in the list.
+  const currentTrack = tracks.find((t) => t.id === chosenId) || tracks[0] || null;
+  const trackId = currentTrack ? currentTrack.id : "";
+  const currentSrc = currentTrack ? currentTrack.src : "";
+  const trackRef = useRef(trackId);
+
+  // Loads the admin's track list. Also called by the admin page after it changes the list. On a
+  // failure the list stays as it was.
+  const refreshTracks = useCallback(async () => {
+    try {
+      const { ok, data } = await api("/music-tracks");
+      if (!ok || !Array.isArray(data)) return;
+      setTracks(data.map(toPlayerTrack));
+      setFailedTracks(new Set());
+    } catch {
+      // can't reach the server - keep the list we have
+    } finally {
+      setListReady(true);
+    }
+  }, []);
+
   useEffect(() => {
-    const audio = new Audio(trackById(trackRef.current).src);
+    refreshTracks();
+  }, [refreshTracks]);
+
+  useEffect(() => {
+    const audio = new Audio();
     audio.loop = true;
     audio.volume = MUSIC_VOLUME;
     audio.preload = "none";
@@ -69,15 +103,19 @@ function MusicProvider({ children }) {
     trackRef.current = trackId;
     const audio = audioRef.current;
     if (!audio) return;
-    const src = trackById(trackId).src;
-    if (!audio.src.endsWith(src)) {
+    if (!currentSrc) {
       audio.pause();
-      audio.src = src;
+      return;
     }
-  }, [trackId]);
+    if (!audio.src.endsWith(currentSrc)) {
+      audio.pause();
+      audio.src = currentSrc;
+    }
+  }, [trackId, currentSrc]);
 
-  const unavailable = failedTracks.has(trackId);
-  const shouldPlay = enabled && suspendCount === 0 && !unavailable;
+  // No track to play (the admin hid or deleted them all) counts as unavailable.
+  const unavailable = !currentTrack || failedTracks.has(trackId);
+  const shouldPlay = enabled && listReady && suspendCount === 0 && !unavailable;
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -128,7 +166,7 @@ function MusicProvider({ children }) {
   const selectTrack = useCallback((id) => {
     save(MUSIC_TRACK_STORAGE_KEY, id);
     save(MUSIC_STORAGE_KEY, "on");
-    setTrackId(id);
+    setChosenId(id);
     setEnabled(true);
   }, []);
 
@@ -139,8 +177,8 @@ function MusicProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ tracks: MUSIC_TRACKS, trackId, failedTracks, enabled, playing, unavailable, toggle, selectTrack, suspend }),
-    [trackId, failedTracks, enabled, playing, unavailable, toggle, selectTrack, suspend]
+    () => ({ tracks, trackId, failedTracks, enabled, playing, unavailable, toggle, selectTrack, suspend, refreshTracks }),
+    [tracks, trackId, failedTracks, enabled, playing, unavailable, toggle, selectTrack, suspend, refreshTracks]
   );
 
   return <MusicContext.Provider value={value}>{children}</MusicContext.Provider>;

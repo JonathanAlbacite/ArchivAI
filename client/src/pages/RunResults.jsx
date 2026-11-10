@@ -8,7 +8,7 @@ import { api, errorMessage } from '../lib/api'
 import { getRole } from '../lib/session'
 import { formatDate, formatDuration, plural } from '../lib/format'
 import { SCORING, xpForRun } from '../lib/gamification'
-import { sceneStyle } from '../scenes'
+import { sceneStyle, useEnvironments } from '../scenes'
 
 // RunResults.jsx
 //
@@ -45,6 +45,7 @@ const HEADLINES = {
 }
 
 function RunResults() {
+  useEnvironments()
     const { campaignId } = useParams()
     const location = useLocation()
     const navigate = useNavigate()

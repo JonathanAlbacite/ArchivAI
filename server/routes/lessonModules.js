@@ -13,10 +13,12 @@ import {
 } from "../lib/clueTemplates.js";
 import { ALLOWED_EXTENSIONS, extractTextFromFile } from "../lib/documentText.js";
 import { protect, teacherOnly } from "../middleware/auth.js";
+import { resolveSceneKey, sceneNamesText } from "../lib/environments.js";
 
 const router = express.Router();
 
-const VALID_SCENES = ["Laboratory", "Library", "Tomb"];
+// The scenes are the environments the admin manages (see lib/environments.js). A scene value is
+// accepted as the environment's key or name, in any case, and stored as the key.
 const UPLOAD_DIR = path.join(process.cwd(), "uploads", "lesson-modules");
 
 fssync.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -105,9 +107,9 @@ router.post("/lesson-modules/upload", protect, teacherOnly, (req, res) => {
 // pages as they are.
 router.post("/lesson-modules/:id/generate-clues", protect, teacherOnly, async (req, res) => {
   const lessonModuleId = parseInt(req.params.id);
-  const scene = VALID_SCENES.find((s) => s.toLowerCase() === (req.body.scene || "").toLowerCase());
+  const scene = await resolveSceneKey(req.body.scene).catch(() => null);
 
-  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${await sceneNamesText()}` });
 
   try {
     const { lessonModule, error, message } = await findOwnedLessonModule(lessonModuleId, req.user.id);
@@ -169,9 +171,9 @@ router.post("/lesson-modules/:id/generate-clues", protect, teacherOnly, async (r
 // editor puts the notes on its last page and they are saved with the campaign.
 router.post("/lesson-modules/:id/generate-notes", protect, teacherOnly, async (req, res) => {
   const lessonModuleId = parseInt(req.params.id);
-  const scene = VALID_SCENES.find((s) => s.toLowerCase() === (req.body.scene || "").toLowerCase());
+  const scene = await resolveSceneKey(req.body.scene).catch(() => null);
 
-  if (!scene) return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+  if (!scene) return res.status(400).json({ message: `scene must be one of ${await sceneNamesText()}` });
 
   try {
     const { lessonModule, error, message } = await findOwnedLessonModule(lessonModuleId, req.user.id);
@@ -240,8 +242,9 @@ router.patch("/clues/:id", protect, teacherOnly, async (req, res) => {
   const clueId = parseInt(req.params.id);
   const { clueText, answerText, answers, note, scene } = req.body;
 
-  if (scene && !VALID_SCENES.includes(scene))
-    return res.status(400).json({ message: `scene must be one of ${VALID_SCENES.join(", ")}` });
+  const sceneKey = scene ? await resolveSceneKey(scene).catch(() => null) : undefined;
+  if (scene && !sceneKey)
+    return res.status(400).json({ message: `scene must be one of ${await sceneNamesText()}` });
 
   try {
     const { clue, error, message } = await findOwnedClue(clueId, req.user.id);
@@ -271,7 +274,7 @@ router.patch("/clues/:id", protect, teacherOnly, async (req, res) => {
         ...(clueText !== undefined && { clueText }),
         ...(note !== undefined && { note: note ? String(note).trim() || null : null }),
         ...answerData,
-        ...(scene !== undefined && { scene }),
+        ...(scene !== undefined && { scene: sceneKey ?? scene }),
         status: "edited",
       },
     });

@@ -11,6 +11,7 @@ import TeacherCharacterCustomization from "./pages/teacher/TeacherCharacterCusto
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminVaultEditor from "./pages/admin/AdminVaultEditor";
 import AdminCharacterSets from "./pages/admin/AdminCharacterSets";
+import AdminMusicTracks from "./pages/admin/AdminMusicTracks";
 import AdminCharacterCustomization from "./pages/admin/AdminCharacterCustomization";
 import RunResults from "./pages/RunResults";
 import AppShell from "./components/layout/AppShell";
@@ -76,6 +77,7 @@ function App() {
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
               <Route path="/admin/vault/:scene" element={<AdminVaultEditor />} />
               <Route path="/admin/character-sets" element={<AdminCharacterSets />} />
+              <Route path="/admin/music" element={<AdminMusicTracks />} />
               <Route path="/admin/character" element={<AdminCharacterCustomization />} />
             </Route>
 

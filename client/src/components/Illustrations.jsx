@@ -63,10 +63,14 @@ export function SceneArt({ scene, className }) {
       </svg>
     );
   }
+  // Any other environment (one the admin added): a plain banner in that environment's own colours,
+  // which the container sets as --scene / --scene-soft (see scenes.js).
   return (
     <svg {...common}>
-      <rect width="240" height="140" style={s("var(--color-surface-muted)")} />
-      <circle cx="120" cy="70" r="26" style={s("var(--color-border)")} />
+      <rect width="240" height="140" style={s("var(--scene-soft, var(--color-surface-muted))")} />
+      <path d="M0 112h240v28H0z" style={s("var(--scene, var(--color-border))")} opacity="0.3" />
+      <circle cx="120" cy="64" r="30" style={s("var(--scene, var(--color-border))")} opacity="0.35" />
+      <circle cx="120" cy="64" r="16" style={s("var(--scene, var(--color-border))")} opacity="0.7" />
     </svg>
   );
 }

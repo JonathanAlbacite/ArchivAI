@@ -65,7 +65,7 @@ model Campaign {
   roomId      Int
   title       String
   description String?
-  scene String? // "laboratory", "tomb", "library"
+  scene String? // the key of an Environment (e.g. "library", "laboratory") - see model Environment
   storyPath   String?
   isPublished Boolean  @default(false)
   createdAt   DateTime @default(now())
@@ -161,8 +161,8 @@ model ClueAnswer {
 // Admin-authored, per-scene question structure. Once published, this is
 // the fixed sequence of clue slots (see TemplateSlot) every campaign
 // created in that scene must follow - teachers fill in the content, they
-// don't choose the shape themselves. One row per scene ("Laboratory",
-// "Library", "Tomb" - matches VALID_SCENES in lessonModules.js).
+// don't choose the shape themselves. One row per scene - the scenes are the
+// Environment rows (see model Environment).
 model VaultTemplate {
   id          Int      @id @default(autoincrement())
   scene       String   @unique
@@ -174,6 +174,39 @@ model VaultTemplate {
   updatedAt   DateTime @updatedAt
 
   slots TemplateSlot[]
+}
+
+// The environments (scenes) a campaign can be set in, managed by the admin from the Admin dashboard
+// instead of being fixed in the code. `key` is what Campaign.scene and VaultTemplate.scene store: it is
+// made from the name when the environment is created and never changes, even if the label does.
+// `icon` is the name of one of the icons in lib/environments.js (ENVIRONMENT_ICONS). `color` is a
+// "#RRGGBB" colour, or null to use the theme's own colour for that environment.
+model Environment {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  label       String
+  icon        String   @default("Sparkles")
+  color       String?
+  blurb       String?
+  orderNumber Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// The website's background music tracks, managed by the admin from the Admin dashboard instead of being fixed
+// in the code. `key` is what each browser remembers as its chosen track; it never changes, even if the
+// track is renamed. `src` is "/audio/<file>.mp3" (a file in client/public/audio/) or
+// "/uploads/music/<file>.mp3" (an uploaded file, served by the server). A hidden track is left out of
+// the list everyone else sees.
+model MusicTrack {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  label       String
+  src         String
+  isHidden    Boolean  @default(false)
+  orderNumber Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // One slot in a VaultTemplate's ordered structure - just a position and
@@ -268,7 +301,7 @@ model GeneratedClue {
   // contains the answer. It becomes the Clue's note (see Clue.note) when the
   // clue is used. Null on clues generated before hints existed.
   note           String?  @db.Text
-  scene          String   // "Laboratory" | "Library" | "Tomb"
+  scene          String   // the key of an Environment (older rows hold the capitalized name)
   status         String   @default("pending") // "pending" | "edited" | "approved" | "rejected"
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -374,4 +407,4 @@ model CharacterLoadout {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id])
-}
+}

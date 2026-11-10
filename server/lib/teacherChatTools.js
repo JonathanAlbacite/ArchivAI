@@ -10,8 +10,13 @@ import {
   hasPlayHistory,
 } from "./clueTemplates.js";
 import { createRoomForTeacher } from "./rooms.js";
+import { findEnvironment, sceneNamesText } from "./environments.js";
 
-const VALID_SCENES = ["Laboratory", "Library", "Tomb"];
+// The scene names the chatbot may use: the environments the admin has set up. ONE shared array,
+// refilled in place from the database before every chat request (see refreshSceneNames in
+// lib/environments.js and routes/chat.js), so the tool definitions below always list the current
+// environments.
+export const VALID_SCENES = [];
 
 // Tool definitions exposed to the teacher chatbot, in Gemini's SchemaType
 // shape (SchemaType's values are already lowercase JSON-Schema-compatible
@@ -315,8 +320,8 @@ export const toolImplementations = {
   },
 
   get_question_set: async (args) => {
-    const scene = VALID_SCENES.find((s) => s.toLowerCase() === (args.scene || "").toLowerCase());
-    if (!scene) return { error: `scene must be one of ${VALID_SCENES.join(", ")}` };
+    const scene = (await findEnvironment(args.scene))?.key;
+    if (!scene) return { error: `scene must be one of ${await sceneNamesText()}` };
 
     const { slotTypes, error } = await getPublishedSlotTypes(scene);
     if (error) return { error };
@@ -336,8 +341,8 @@ export const toolImplementations = {
   // page's type (see lib/clueTemplates.js) - the same generator the campaign
   // editor's "Generate Clues from a Lesson" uses.
   generate_clues_from_notes: async (args) => {
-    const scene = VALID_SCENES.find((s) => s.toLowerCase() === (args.scene || "").toLowerCase());
-    if (!scene) return { error: `scene must be one of ${VALID_SCENES.join(", ")}` };
+    const scene = (await findEnvironment(args.scene))?.key;
+    if (!scene) return { error: `scene must be one of ${await sceneNamesText()}` };
     if (!args.notes || !args.notes.trim()) return { error: "notes is required" };
 
     const generated = await generateCluesForScene(
@@ -382,7 +387,7 @@ export const toolImplementations = {
         title: args.title,
         roomId,
         description: args.description,
-        scene: args.scene || "",
+        scene: (args.scene && (await findEnvironment(args.scene))?.key) || args.scene || "",
         isPublished: args.publish !== false,
       },
     });
@@ -491,7 +496,7 @@ export const toolImplementations = {
       data: {
         ...(args.title !== undefined && { title: args.title }),
         ...(args.description !== undefined && { description: args.description }),
-        ...(args.scene !== undefined && { scene: args.scene }),
+        ...(args.scene !== undefined && { scene: (await findEnvironment(args.scene))?.key || args.scene }),
       },
     });
 

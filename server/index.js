@@ -8,8 +8,10 @@ import campaignRoutes from "./routes/campaigns.js";
 import lessonModuleRoutes from "./routes/lessonModules.js";
 import chatRoutes from "./routes/chat.js";
 import vaultTemplateRoutes from "./routes/vaultTemplates.js";
+import environmentRoutes from "./routes/environments.js";
 import characterLoadoutRoutes from "./routes/characterLoadout.js";
 import characterSetRoutes from "./routes/characterSets.js";
+import musicTrackRoutes from "./routes/musicTracks.js";
 import { runAllSeeds } from "./scripts/seedAll.js";
 
 const app = express();
@@ -24,6 +26,10 @@ app.use(express.json());
 // (teacher-uploaded documents) stay server-side only.
 app.use("/uploads/character-sets", express.static(path.join(process.cwd(), "uploads", "character-sets")));
 
+// Admin-uploaded background music (see routes/musicTracks.js) - served directly so the website's
+// <audio> element can play it, scoped to this one subfolder for the same reason as above.
+app.use("/uploads/music", express.static(path.join(process.cwd(), "uploads", "music")));
+
 app.use("/api/auth", authRoutes);
 
 app.use("/api/rooms", roomRoutes);
@@ -32,17 +38,19 @@ app.use("/api", campaignRoutes);
 app.use("/api", lessonModuleRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api", vaultTemplateRoutes);
+app.use("/api", environmentRoutes);
 app.use("/api/character-loadout", characterLoadoutRoutes);
 app.use("/api", characterSetRoutes);
+app.use("/api", musicTrackRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "Archivist Legacy API is running" });
 });
 
-// Seeds the admin login + admin-authored catalog data (vault templates, character sets) before
+// Seeds the admin login + admin-authored catalog data (vault templates, character sets, music tracks) before
 // accepting any requests - see scripts/seedAll.js. This is what lets a fresh clone + npm install +
 // database migration come up fully set up with no separate manual seed step. Safe to run on every
-// boot, not just the first, since all three seeds upsert rather than insert blindly.
+// boot, not just the first, since every seed upserts or skips what already exists rather than insert blindly.
 async function start() {
   try {
     await runAllSeeds();
@@ -56,4 +64,4 @@ async function start() {
   });
 }
 
-start();
+start();

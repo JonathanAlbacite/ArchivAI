@@ -3,7 +3,6 @@
     "label": "000",
     "glbFilename": "1791056289443-95107116.glb",
     "orderNumber": 0,
-    "isBase": true,
     "slots": [
       {
         "slot": "Head",
@@ -31,7 +30,6 @@
     "label": "001",
     "glbFilename": "1791055174398-648299448.glb",
     "orderNumber": 1,
-    "isBase": false,
     "slots": [
       {
         "slot": "Head",
@@ -52,6 +50,33 @@
         "slot": "Leg",
         "meshName": "Leg2",
         "optionId": "leg001"
+      }
+    ]
+  },
+  {
+    "label": "002",
+    "glbFilename": "1794297497219-27523131.glb",
+    "orderNumber": 2,
+    "slots": [
+      {
+        "slot": "Head",
+        "meshName": "Head3",
+        "optionId": "head002"
+      },
+      {
+        "slot": "Body",
+        "meshName": "Body3",
+        "optionId": "body002"
+      },
+      {
+        "slot": "Arm",
+        "meshName": "Arm3",
+        "optionId": "arm002"
+      },
+      {
+        "slot": "Leg",
+        "meshName": "Leg3",
+        "optionId": "leg002"
       }
     ]
   }
