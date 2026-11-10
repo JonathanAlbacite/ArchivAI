@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { Maximize2 } from "lucide-react"
+import PauseMenu from "./game/PauseMenu"
+import { api, errorMessage } from "../lib/api"
+import { loadGameSettings, saveGameSettings, sendGameSettings } from "../lib/gameSettings"
+import { startGameKeyGuard } from "../lib/gameKeyGuard"
 
 // UnityGame.jsx
 //
@@ -33,6 +37,33 @@ import { Maximize2 } from "lucide-react"
 //      should mount - see StudentRoomPage.jsx / RoomPage.jsx. Pass
 //      onRunFinished to react when a run ends (it gets { campaignId, saved }).
 //
+// PAUSE MENU - the game's pause menu is built here, in the page, not in Unity (see PauseMenu.jsx).
+// Unity does the actual pausing (PauseMenuBridge.cs, on the "GameManager" object):
+//
+//   page -> Unity:  unityInstance.SendMessage("GameManager", "PauseGame" | "ResumeGame")
+//                   ... "SetMasterVolume" / "SetLookSensitivity" with the Options values as text
+//   Unity -> page:  window event "archivai:pause-state", detail { paused } (PauseMenuPlugin.jslib)
+//
+// The menu is only shown when Unity answers paused: true, so a request that Unity refuses (a
+// dialogue, a cutscene...) shows nothing. WHEN IT OPENS: while the mouse is locked the browser takes
+// the Esc key to release the lock and the page never gets the key. So the page watches the lock
+// itself: if the lock is lost while the game still wants it (window.__archivistCursorShouldBeLocked,
+// kept by PointerLockPlugin.jslib - it is false whenever Unity frees the cursor on purpose, for the
+// journal, a dialogue and so on) the player pressed Esc (or switched to another window) and the
+// page asks Unity to pause. Esc while the cursor is free but still wanted does the same.
+// WHAT IT DOES: Resume asks Unity to resume and locks the mouse again right inside the click (a
+// real user gesture, which the browser needs). Restart from checkpoint and Restart game start a new
+// Unity instance, which loads the saved checkpoint (or, after Restart game deleted the saved progress
+// on the website with DELETE /api/campaigns/:id/progress, the beginning). Exit calls onExit. The
+// Options (volume, mouse sensitivity) are kept in this browser (lib/gameSettings.js) and sent to Unity
+// whenever the game starts and whenever they change.
+//
+// BROWSER SHORTCUTS - while the game is running, lib/gameKeyGuard.js keeps the browser's own shortcuts away
+// from it (Tab, Space, the arrows, Ctrl+S/D/F/R..., Ctrl+wheel zoom, the right-click menu). Ctrl+W, T and N
+// (close tab, new tab, new window) cannot be stopped by a page: in fullscreen on Chrome/Edge the guard uses
+// Keyboard Lock to keep them, and everywhere it asks "Leave this site?" before a tab is closed. It is off
+// while the pause menu is open. See the top of gameKeyGuard.js for the full list.
+//
 // FULLSCREEN - uses the browser's native Fullscreen API on the outer
 // container. The 16:9 "stage" box (canvas + overlays) always keeps that
 // exact ratio - in fullscreen it's sized with a CSS min() so it grows as
@@ -61,13 +92,21 @@ const BUILD_FOLDER = "unitybuild"
 // client/public/unitybuild/Build/ if this ever drifts.
 const BUILD_NAME = "unitybuild"
 
-function UnityGame({ token, roomId, onError, onRunFinished, onStatusChange }) {
+function UnityGame({ token, roomId, campaignId, onError, onRunFinished, onStatusChange, onExit }) {
     const canvasRef = useRef(null)
     const containerRef = useRef(null)
     const instanceRef = useRef(null)
     const [status, setStatus] = useState("loading") // loading | ready | error
     const [progress, setProgress] = useState(0)
     const [isFullscreen, setIsFullscreen] = useState(false)
+
+    // Pause menu - see PAUSE MENU above. sessionKey is raised to start the game again from scratch
+    // (a new Unity instance on a new canvas); paused follows what Unity reports.
+    const [sessionKey, setSessionKey] = useState(0)
+    const [paused, setPaused] = useState(false)
+    const [settings, setSettings] = useState(loadGameSettings)
+    const pausedRef = useRef(false)
+    const settingsRef = useRef(settings)
 
     // Keeps isFullscreen in sync no matter how fullscreen was exited -
     // the button, Escape (handled natively by the browser), or F11 - so
@@ -107,6 +146,11 @@ function UnityGame({ token, roomId, onError, onRunFinished, onStatusChange }) {
 
     useEffect(() => {
         let cancelled = false
+
+        // A restart comes back through here with the old game already shut down.
+        setStatus("loading")
+        setProgress(0)
+        setPaused(false)
 
         const buildUrl = `/${BUILD_FOLDER}/Build`
         const loaderUrl = `${buildUrl}/${BUILD_NAME}.loader.js`
@@ -153,6 +197,9 @@ function UnityGame({ token, roomId, onError, onRunFinished, onStatusChange }) {
                         "SetAuthContext",
                         JSON.stringify({ token, roomId: Number(roomId) })
                     )
+
+                    // The player's Options (volume, mouse sensitivity) - see PAUSE MENU above.
+                    sendGameSettings(instance, settingsRef.current)
                 })
                 .catch((err) => {
                     console.error("[UnityGame] Failed to start Unity instance:", err)
@@ -177,7 +224,90 @@ function UnityGame({ token, roomId, onError, onRunFinished, onStatusChange }) {
                 instanceRef.current = null
             }
         }
-    }, [token, roomId])
+    }, [token, roomId, sessionKey])
+
+    // ---- Pause menu (see PAUSE MENU above) ----
+
+    useEffect(() => {
+        pausedRef.current = paused
+    }, [paused])
+
+    useEffect(() => {
+        settingsRef.current = settings
+    }, [settings])
+
+    const requestPause = () => {
+        instanceRef.current?.SendMessage("GameManager", "PauseGame")
+    }
+
+    // Unity's answer: paused true opens the menu, false (resumed, or a refused request) closes it.
+    useEffect(() => {
+        const handlePauseState = (event) => setPaused(Boolean(event.detail?.paused))
+        window.addEventListener("archivai:pause-state", handlePauseState)
+        return () => window.removeEventListener("archivai:pause-state", handlePauseState)
+    }, [])
+
+    // Opens the menu when the mouse lock is lost while the game still wants it (Esc, or another
+    // window took focus), and on Esc while the cursor is free but wanted locked.
+    useEffect(() => {
+        if (status !== "ready") return undefined
+
+        const gameWantsLock = () => window.__archivistCursorShouldBeLocked === true
+
+        const handleLockChange = () => {
+            if (!document.pointerLockElement && gameWantsLock() && !pausedRef.current) requestPause()
+        }
+        const handleKeyDown = (event) => {
+            if (event.key !== "Escape" || pausedRef.current) return
+            if (!document.pointerLockElement && gameWantsLock()) requestPause()
+        }
+
+        document.addEventListener("pointerlockchange", handleLockChange)
+        window.addEventListener("keydown", handleKeyDown)
+        return () => {
+            document.removeEventListener("pointerlockchange", handleLockChange)
+            window.removeEventListener("keydown", handleKeyDown)
+        }
+    }, [status])
+
+    // Browser shortcuts kept away from the game while it runs - see BROWSER SHORTCUTS above.
+    useEffect(() => {
+        if (status !== "ready") return undefined
+        return startGameKeyGuard({ container: containerRef.current, isPaused: () => pausedRef.current })
+    }, [status])
+
+    // Back to the game. The mouse lock is asked for right here, inside the click.
+    const resumeGame = () => {
+        instanceRef.current?.SendMessage("GameManager", "ResumeGame")
+        try {
+            const request = canvasRef.current?.requestPointerLock?.()
+            if (request && typeof request.catch === "function") request.catch(() => {})
+        } catch {
+            // The browser refused; the next click on the game locks the mouse (PointerLockPlugin.jslib).
+        }
+    }
+
+    // A new Unity instance: it loads the last saved checkpoint by itself.
+    const restartFromCheckpoint = () => setSessionKey((key) => key + 1)
+
+    // Deletes the saved progress, then starts over. Resolves to an error text when it fails.
+    const restartGame = async () => {
+        try {
+            const { ok, data } = await api(`/campaigns/${campaignId}/progress`, { method: "DELETE" })
+            if (!ok) return errorMessage(data, "Your progress could not be deleted. Please try again.")
+        } catch {
+            return "The website could not be reached. Please try again."
+        }
+
+        setSessionKey((key) => key + 1)
+        return null
+    }
+
+    const changeSettings = (next) => {
+        setSettings(next)
+        saveGameSettings(next)
+        sendGameSettings(instanceRef.current, next)
+    }
 
     // Lets the page around the game react to the real lifecycle (e.g. only ask
     // "leave the campaign?" once the game is actually running).
@@ -201,6 +331,7 @@ function UnityGame({ token, roomId, onError, onRunFinished, onStatusChange }) {
                 itself to fit the screen without ever distorting the ratio. */}
             <div className="unity-frame__stage">
                 <canvas
+                    key={sessionKey}
                     id="unity-canvas"
                     ref={canvasRef}
                     tabIndex={-1}
@@ -227,6 +358,17 @@ function UnityGame({ token, roomId, onError, onRunFinished, onStatusChange }) {
                         </div>
                         <p className="unity-frame__pct">{pct}%</p>
                     </div>
+                )}
+
+                {status === "ready" && paused && (
+                    <PauseMenu
+                        settings={settings}
+                        onSettingsChange={changeSettings}
+                        onResume={resumeGame}
+                        onRestartCheckpoint={restartFromCheckpoint}
+                        onRestartGame={restartGame}
+                        onExit={() => onExit?.()}
+                    />
                 )}
 
                 {status === "error" && (

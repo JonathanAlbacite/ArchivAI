@@ -9,8 +9,10 @@ import { useSuspendMusic } from "../../lib/music";
 
 // Full-window game view shared by the student room (play) and the teacher
 // room (preview). It only frames UnityGame - the Unity contract (build URLs,
-// SetAuthContext handoff, the archivai:run-finished event) lives entirely in
-// UnityGame.jsx and is untouched here. The room's active campaign must
+// SetAuthContext handoff, the archivai:run-finished event, the pause menu) lives
+// entirely in UnityGame.jsx. The menu's Exit leaves through onExit, after its own
+// confirmation, so it does not go through the confirm dialog below (which would be
+// invisible in fullscreen). The room's active campaign must
 // already be set server-side before this mounts (see handlePlay on each page).
 function GameStage({ campaign, roomId, preview = false, onExit, onError, onRunFinished }) {
   const [status, setStatus] = useState("loading");
@@ -47,10 +49,18 @@ function GameStage({ campaign, roomId, preview = false, onExit, onError, onRunFi
       </header>
 
       <div className="game-stage__body">
-        <UnityGame token={getToken()} roomId={roomId} onError={onError} onRunFinished={onRunFinished} onStatusChange={setStatus} />
+        <UnityGame
+          token={getToken()}
+          roomId={roomId}
+          campaignId={campaign.id}
+          onError={onError}
+          onRunFinished={onRunFinished}
+          onStatusChange={setStatus}
+          onExit={onExit}
+        />
         {status === "ready" && (
           <p className="game-stage__hint text-xs">
-            Your progress is saved at every checkpoint. Press Esc to leave fullscreen.
+            Your progress is saved at every checkpoint. Press Esc for the menu.
           </p>
         )}
       </div>

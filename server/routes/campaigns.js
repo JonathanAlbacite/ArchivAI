@@ -864,6 +864,25 @@ router.put("/campaigns/:id/progress", protect, async (req, res) => {
   }
 });
 
+// Website: Delete the logged-in user's saved progress for a campaign (the pause menu's "Restart
+// game"). The row holds the checkpoint, the world state and the journal, so the next time the game
+// starts it finds nothing saved and begins from the start. The user always comes from the token.
+// Answers 200 even when there was nothing to delete. A finished run's results are not touched.
+router.delete("/campaigns/:id/progress", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+  if (!Number.isInteger(campaignId)) return res.status(400).json({ message: "Invalid campaign id" });
+
+  try {
+    await prisma.campaignProgress.deleteMany({
+      where: { campaignId, studentId: req.user.id },
+    });
+
+    res.json({ cleared: true });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 // How many journal ids one save may hold, and how long one id may be. A campaign has a few dozen
 // clues and notes at most, so anything bigger is cut instead of stored.
 const MAX_JOURNAL_IDS = 500;
