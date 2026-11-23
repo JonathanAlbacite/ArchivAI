@@ -1,4 +1,4 @@
-import { Compass, DoorOpen, LayoutDashboard, Palette, Users } from "lucide-react";
+import { Compass, DoorOpen, LayoutDashboard, Palette, Trophy, Users } from "lucide-react";
 
 export const ROLE_LABELS = {
   STUDENT: "Student",
@@ -34,6 +34,7 @@ export const NAV = {
       items: [
         { to: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard, match: ["/admin/vault"] },
         { to: "/admin/character-sets", label: "Character Sets", icon: Users },
+        { to: "/admin/trophies", label: "Trophies", icon: Trophy, match: ["/admin/trophies"] },
         { to: "/admin/character", label: "My Character", icon: Palette },
       ],
     },

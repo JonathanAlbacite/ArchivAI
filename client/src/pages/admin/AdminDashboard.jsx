@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, CheckCircle2, DoorOpen, Layers, Music, Palette, Pencil, Plus, Trash2, Users } from "lucide-react";
+import { ArrowRight, CheckCircle2, DoorOpen, Layers, Music, Palette, Pencil, Plus, Trash2, Trophy, Users } from "lucide-react";
 import { SceneArt } from "../../components/Illustrations";
 import { Alert, Badge, Button, Card, Checkbox, ConfirmDialog, IconButton, Modal, PageHeader, SkeletonCards, Stat, StatusChip, TextField } from "../../components/ui";
 import { ENVIRONMENT_ICONS, setEnvironments, toMeta } from "../../scenes";
@@ -149,6 +149,7 @@ function AdminDashboard() {
   const [templates, setTemplates] = useState(null);
   const [sets, setSets] = useState(null);
   const [musicTracks, setMusicTracks] = useState(null);
+  const [trophies, setTrophies] = useState(null);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [editing, setEditing] = useState(null); // null | "new" | an environment
@@ -162,11 +163,12 @@ function AdminDashboard() {
     let cancelled = false;
     const load = async () => {
       try {
-        const [eRes, tRes, sRes, mRes] = await Promise.all([
+        const [eRes, tRes, sRes, mRes, trRes] = await Promise.all([
           api("/environments"),
           api("/admin/vault-templates"),
           api("/character-sets"),
           api("/admin/music-tracks"),
+          api("/scene-trophies"),
         ]);
         if (cancelled) return;
         if (tRes.status === 401 || tRes.status === 403) {
@@ -181,6 +183,7 @@ function AdminDashboard() {
         setTemplates(Object.fromEntries(tRes.data.map((t) => [t.scene, t])));
         setSets(sRes.ok && Array.isArray(sRes.data) ? [...sRes.data].sort((a, b) => a.orderNumber - b.orderNumber) : []);
         setMusicTracks(mRes.ok && Array.isArray(mRes.data) ? mRes.data : []);
+        setTrophies(trRes.ok && Array.isArray(trRes.data) ? trRes.data : []);
         setError("");
       } catch (err) {
         if (!cancelled) setError(err.message === "Failed to fetch" ? "Couldn't reach the server. Check your connection." : err.message);
@@ -368,6 +371,35 @@ function AdminDashboard() {
                   <Badge tone="outline" size="lg">
                     {track.label}
                     {track.isHidden ? " · hidden" : ""}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </section>
+
+      <section className="section" aria-labelledby="trophies-heading">
+        <div className="section__head">
+          <h2 id="trophies-heading" className="section__title row" style={{ "--gap": "8px" }}>
+            <Trophy size={20} aria-hidden="true" /> Trophies
+          </h2>
+          <Button variant="secondary" size="sm" iconRight={ArrowRight} to="/admin/trophies">
+            Manage
+          </Button>
+        </div>
+        <Card>
+          {!trophies || !environments ? (
+            <div className="skeleton" style={{ height: 40 }} aria-hidden="true" />
+          ) : environments.length === 0 ? (
+            <p className="text-sm text-muted">No environments yet. Add one, then give it a trophy.</p>
+          ) : (
+            <ul className="row" role="list" style={{ listStyle: "none" }}>
+              {environments.map((s) => (
+                <li key={s.key}>
+                  <Badge tone={trophies.some((t) => t.sceneKey === s.key) ? "success" : "outline"} size="lg">
+                    {s.label}
+                    {trophies.some((t) => t.sceneKey === s.key) ? " · has a trophy" : " · no trophy"}
                   </Badge>
                 </li>
               ))}

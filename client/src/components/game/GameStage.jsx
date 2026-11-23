@@ -6,15 +6,17 @@ import { Badge, Button, ConfirmDialog } from "../ui";
 import { getToken } from "../../lib/session";
 import { sceneStyle, useEnvironments } from "../../scenes";
 import { useSuspendMusic } from "../../lib/music";
+import { lockScroll } from "../../lib/scrollLock";
 
 // Full-window game view shared by the student room (play) and the teacher
 // room (preview). It only frames UnityGame - the Unity contract (build URLs,
 // SetAuthContext handoff, the archivai:run-finished event, the pause menu) lives
 // entirely in UnityGame.jsx. The menu's Exit leaves through onExit, after its own
 // confirmation, so it does not go through the confirm dialog below (which would be
-// invisible in fullscreen). The room's active campaign must
+// invisible in fullscreen). exitTarget ("room" or "campaign") only changes the wording of the
+// leave buttons; where they go is decided by onExit. The room's active campaign must
 // already be set server-side before this mounts (see handlePlay on each page).
-function GameStage({ campaign, roomId, preview = false, onExit, onError, onRunFinished }) {
+function GameStage({ campaign, roomId, preview = false, exitTarget = "room", onExit, onError, onRunFinished }) {
   useEnvironments();
   const [status, setStatus] = useState("loading");
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -23,10 +25,9 @@ function GameStage({ campaign, roomId, preview = false, onExit, onError, onRunFi
 
   // The page behind the game must not scroll while it's open.
   useEffect(() => {
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlock = lockScroll();
     return () => {
-      document.body.style.overflow = previous;
+      unlock();
     };
   }, []);
 
@@ -38,7 +39,7 @@ function GameStage({ campaign, roomId, preview = false, onExit, onError, onRunFi
     <div className="game-stage" style={sceneStyle(campaign.scene)} role="region" aria-label={`${campaign.title} game`}>
       <header className="game-stage__bar">
         <Button variant="secondary" size="sm" icon={ArrowLeft} onClick={requestExit}>
-          Return to room
+          {exitTarget === "campaign" ? "Back to campaign" : "Return to room"}
         </Button>
         <div className="game-stage__title grow">
           <h1 className="truncate">{campaign.title}</h1>
@@ -58,6 +59,7 @@ function GameStage({ campaign, roomId, preview = false, onExit, onError, onRunFi
           onRunFinished={onRunFinished}
           onStatusChange={setStatus}
           onExit={onExit}
+          exitTarget={exitTarget}
         />
         {status === "ready" && (
           <p className="game-stage__hint text-xs">

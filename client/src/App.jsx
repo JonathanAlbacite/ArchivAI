@@ -6,12 +6,17 @@ import TeacherDashboard from "./pages/teacher/TeacherDashboard";
 import RoomPage from "./pages/teacher/RoomPage";
 import StudentDashboard from "./pages/student/StudentDashboard";
 import StudentRoomPage from "./pages/student/StudentRoomPage";
+import StudentCampaignPage from "./pages/student/StudentCampaignPage";
 import StudentCharacterCustomization from "./pages/student/StudentCharacterCustomization";
 import TeacherCharacterCustomization from "./pages/teacher/TeacherCharacterCustomization";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminVaultEditor from "./pages/admin/AdminVaultEditor";
 import AdminCharacterSets from "./pages/admin/AdminCharacterSets";
 import AdminMusicTracks from "./pages/admin/AdminMusicTracks";
+import AdminTrophies from "./pages/admin/AdminTrophies";
+import AdminTrophyPreview from "./pages/admin/AdminTrophyPreview";
+import StudentProgressPage from "./pages/teacher/StudentProgressPage";
+import TeacherCampaignPage from "./pages/teacher/TeacherCampaignPage";
 import AdminCharacterCustomization from "./pages/admin/AdminCharacterCustomization";
 import RunResults from "./pages/RunResults";
 import AppShell from "./components/layout/AppShell";
@@ -59,12 +64,15 @@ function App() {
             <Route element={<AppShell allow={["TEACHER", "ADMIN"]} accent="TEACHER" assistant />}>
               <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
               <Route path="/teacher/room/:id" element={<RoomPage />} />
+              <Route path="/teacher/room/:roomId/campaign/:campaignId" element={<TeacherCampaignPage />} />
+              <Route path="/teacher/room/:roomId/campaign/:campaignId/progress" element={<StudentProgressPage />} />
               <Route path="/teacher/character" element={<TeacherCharacterCustomization />} />
             </Route>
 
             <Route element={<AppShell allow={["STUDENT"]} />}>
               <Route path="/student/dashboard" element={<StudentDashboard />} />
               <Route path="/student/room/:id" element={<StudentRoomPage />} />
+              <Route path="/student/room/:id/campaign/:campaignId" element={<StudentCampaignPage />} />
               <Route path="/student/character" element={<StudentCharacterCustomization />} />
             </Route>
 
@@ -78,6 +86,8 @@ function App() {
               <Route path="/admin/vault/:scene" element={<AdminVaultEditor />} />
               <Route path="/admin/character-sets" element={<AdminCharacterSets />} />
               <Route path="/admin/music" element={<AdminMusicTracks />} />
+              <Route path="/admin/trophies" element={<AdminTrophies />} />
+              <Route path="/admin/trophies/:sceneKey/preview" element={<AdminTrophyPreview />} />
               <Route path="/admin/character" element={<AdminCharacterCustomization />} />
             </Route>
 

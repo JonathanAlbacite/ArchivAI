@@ -36,11 +36,11 @@ export function XPBar({ level, xp, levelStartXp, nextLevelXp, progress, compact 
   );
 }
 
-const RANK_LABELS = { A: "Gold rank", B: "Silver rank", C: "Bronze rank", D: "Slate rank" };
+const RANK_LABELS = { S: "Star rank", A: "Gold rank", B: "Silver rank", C: "Bronze rank", D: "Slate rank" };
 
-// The game's own A-D rank (never computed here). Missing rank -> "No rank".
+// The S-D rank of a finished run (worked out by the server, see server/lib/scoring.js). Missing rank -> "No rank".
 export function RankMedal({ rank, size = 56, showLabel = false }) {
-  const key = ["A", "B", "C", "D"].includes(rank) ? rank : "none";
+  const key = ["S", "A", "B", "C", "D"].includes(rank) ? rank : "none";
   const text = key === "none" ? "No rank recorded" : `Rank ${rank} (${RANK_LABELS[rank]})`;
   const medal = (
     <span className="medal" data-rank={key} style={{ "--size": `${size}px` }} role="img" aria-label={text}>

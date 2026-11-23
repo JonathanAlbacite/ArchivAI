@@ -2,6 +2,8 @@ import express from "express";
 import prisma from "../lib/prisma.js";
 import { protect, adminOnly } from "../middleware/auth.js";
 import { exportVaultTemplatesSnapshot } from "../lib/vaultTemplatesExport.js";
+import { exportSceneTrophiesSnapshot } from "../lib/sceneTrophiesExport.js";
+import { removeTrophyFile } from "./sceneTrophies.js";
 import {
   ENVIRONMENT_ICONS,
   DEFAULT_ICON,
@@ -119,7 +121,7 @@ router.put("/admin/environments/:id", protect, adminOnly, async (req, res) => {
 });
 
 // Admin: delete an environment. Refused while any campaign is set in it. Its question set (draft or
-// published) is deleted with it, since nothing can use it any more.
+// published) and its trophy are deleted with it, since nothing can use them any more.
 router.delete("/admin/environments/:id", protect, adminOnly, async (req, res) => {
   const id = parseInt(req.params.id);
 
@@ -136,6 +138,18 @@ router.delete("/admin/environments/:id", protect, adminOnly, async (req, res) =>
 
     await prisma.vaultTemplate.deleteMany({ where: { scene: existing.key } });
     await prisma.environment.delete({ where: { id } });
+
+    // Its trophy (if the admin added one) goes with it, file included.
+    const trophy = await prisma.sceneTrophy.findUnique({ where: { sceneKey: existing.key } });
+    if (trophy) {
+      await prisma.sceneTrophy.delete({ where: { id: trophy.id } });
+      removeTrophyFile(trophy);
+      try {
+        await exportSceneTrophiesSnapshot();
+      } catch (exportErr) {
+        console.error("[environments] Failed to export trophy seed snapshot:", exportErr);
+      }
+    }
 
     // Keeps prisma/vaultTemplatesSeed.json in sync, same as the vault template routes do.
     try {

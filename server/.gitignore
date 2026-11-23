@@ -8,7 +8,9 @@ node_modules
 # uploads are an exception: those need to be in git for the Admin's catalog to be portable
 # across machines (see server/prisma/characterSetsSeed.json and scripts/seedCharacterSets.js).
 # Music .mp3 uploads are the other exception, for the same reason (see
-# server/prisma/musicTracksSeed.json and scripts/seedMusicTracks.js).
+# server/prisma/musicTracksSeed.json and scripts/seedMusicTracks.js). Scene trophy .glb uploads are
+# the last one (see server/prisma/sceneTrophiesSeed.json and scripts/seedSceneTrophies.js).
 /uploads/*
 !/uploads/character-sets
 !/uploads/music
+!/uploads/trophies

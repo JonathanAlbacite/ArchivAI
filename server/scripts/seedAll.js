@@ -1,5 +1,5 @@
 // Runs every startup seed, in order - the admin login, then vault templates, then character sets, then
-// music tracks.
+// music tracks, then scene trophies.
 // Used two ways:
 //   1. Automatically, every time the server boots (see index.js) - this is what lets a fresh clone
 //      + npm install + a database migration come up fully set up, with no separate seed command.
@@ -15,12 +15,14 @@ import { seedAdmin } from "./seedAdmin.js";
 import { seedVaultTemplates } from "./seedVaultTemplates.js";
 import { seedCharacterSets } from "./seedCharacterSets.js";
 import { seedMusicTracks } from "./seedMusicTracks.js";
+import { seedSceneTrophies } from "./seedSceneTrophies.js";
 
 export async function runAllSeeds() {
   await seedAdmin();
   await seedVaultTemplates();
   await seedCharacterSets();
   await seedMusicTracks();
+  await seedSceneTrophies();
 }
 
 // Only runs this when the file is executed directly (`node scripts/seedAll.js` / `npm run seed`),

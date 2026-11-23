@@ -212,6 +212,18 @@ model MusicTrack {
 // One slot in a VaultTemplate's ordered structure - just a position and
 // a ClueType. No question/answer content lives here; that's authored per
 // campaign by the teacher, in the shape this slot dictates.
+// One 3D trophy model per Scene (Environment), shown on the results page. Added and managed by the
+// admin (Admin dashboard > Trophies, see routes/sceneTrophies.js). sceneKey is the Environment key.
+// src is the model's address, "/uploads/trophies/<file>.glb". A Scene with no trophy has no row.
+model SceneTrophy {
+  id        Int      @id @default(autoincrement())
+  sceneKey  String   @unique
+  label     String
+  src       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model TemplateSlot {
   id          Int      @id @default(autoincrement())
   templateId  Int
@@ -239,6 +251,12 @@ model CampaignSession {
   checkpointsTotal   Int?
   lockResults        Json?
 
+  // The score of the run, worked out by the server (lib/scoring.js) from the facts the game sent.
+  // scoreDetails is the whole breakdown (speed, wrong attempts, clues, notes, maximum, percent) as
+  // shown on the results page. Both are empty for runs finished before the score existed.
+  score        Int?
+  scoreDetails Json?
+
   campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   student  User            @relation(fields: [studentId], references: [id])
   attempts SessionAttempt[]
@@ -256,6 +274,7 @@ model CampaignProgress {
   lastCheckpointId     String?
   reachedCheckpointIds Json
   worldState           String?  @db.LongText // JSON text from the game: locks, items, journal and run time at the last checkpoint
+  liveState            String?  @db.LongText // NOT USED (a live save was tried on 2026-11-22 and removed; the column came from that migration and can be dropped later)
   journalIds           Json?    // ids of the clues and notes found so far, saved the moment each is found (not tied to a checkpoint)
   status               String   @default("IN_PROGRESS") // "IN_PROGRESS" or "COMPLETED"
   startedAt            DateTime @default(now())

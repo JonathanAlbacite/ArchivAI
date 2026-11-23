@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button, IconButton } from "./Button";
+import { lockScroll } from "../../lib/scrollLock";
 
 const cx = (...parts) => parts.filter(Boolean).join(" ");
 
@@ -50,8 +51,7 @@ export function Modal({
     const token = {};
     stack.push(token);
     const opener = document.activeElement;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const unlock = lockScroll();
 
     // Move focus in: the caller's chosen field, else the first field, else the dialog.
     const frame = requestAnimationFrame(() => {
@@ -78,7 +78,7 @@ export function Modal({
       cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKeyDown);
       stack.splice(stack.indexOf(token), 1);
-      if (stack.length === 0) document.body.style.overflow = previousOverflow;
+      unlock();
       if (opener && typeof opener.focus === "function" && document.contains(opener)) opener.focus({ preventScroll: true });
     };
     // initialFocusRef is read once on open by design.

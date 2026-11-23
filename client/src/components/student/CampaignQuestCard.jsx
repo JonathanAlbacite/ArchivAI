@@ -1,4 +1,4 @@
-import { Eye, Paperclip, Play, RotateCcw, StepForward } from "lucide-react";
+import { BookOpen, ChevronRight, Play, RotateCcw, StepForward } from "lucide-react";
 import { SceneArt } from "../Illustrations";
 import { SceneBadge } from "../SceneIcon";
 import { Button, RankMedal, Skeleton, StatusChip } from "../ui";
@@ -14,7 +14,11 @@ const ACTION = {
 // One published campaign. `status` comes from fetchCampaignStatus
 // (null while loading). The rank shown is the game's rank from the latest
 // finished run - the API keeps only the latest, so it's labelled that way.
-function CampaignQuestCard({ campaign, number, status, starting, disabled, onPlay, onPreviewAttachment }) {
+// The whole card is clickable: the title is a button whose click area is stretched over the card
+// (.quest-card__open), and onOpen(campaign) opens the campaign's own page (StudentCampaignPage). The buttons
+// inside the card (Latest run, View Lesson, Play) sit above it and do their own thing.
+// The Latest run box is a button: onViewRun(campaign) opens that run's results page.
+function CampaignQuestCard({ campaign, number, status, starting, disabled, onPlay, onPreviewAttachment, onViewRun, onOpen }) {
   useEnvironments();
   const state = status?.state || "notStarted";
   const action = ACTION[state];
@@ -32,7 +36,10 @@ function CampaignQuestCard({ campaign, number, status, starting, disabled, onPla
       <div className="quest-card__body">
         <p className="text-xs text-muted font-semibold">Campaign {number}</p>
         <h3 id={`quest-${campaign.id}-title`} className="card__title break-words">
-          {campaign.title}
+          <button type="button" className="quest-card__open" onClick={() => onOpen(campaign)}>
+            {campaign.title}
+            <span className="sr-only"> - view details</span>
+          </button>
         </h3>
         {campaign.description && <p className="text-sm text-muted quest-card__desc">{campaign.description}</p>}
 
@@ -42,24 +49,28 @@ function CampaignQuestCard({ campaign, number, status, starting, disabled, onPla
         </div>
 
         {run && (
-          <div className="quest-card__best">
+          <button
+            type="button"
+            className="quest-card__best quest-card__best--link"
+            onClick={() => onViewRun(campaign)}
+            aria-label={`View the results of your latest run of ${campaign.title}: ${run.rank ? `Rank ${run.rank}` : "no rank"}, ${formatDuration(run.totalTime)}`}
+          >
             <RankMedal rank={run.rank} size={40} />
-            <div>
+            <div className="grow">
               <p className="text-xs text-muted">Latest run</p>
               <p className="text-sm font-semibold">
                 {run.rank ? `Rank ${run.rank}` : "No rank"} · {formatDuration(run.totalTime)}
               </p>
             </div>
-          </div>
+            <ChevronRight size={18} aria-hidden="true" className="quest-card__best-arrow" />
+          </button>
         )}
 
         {campaign.attachmentFilename && (
-          <button type="button" className="attachment-chip" onClick={() => onPreviewAttachment(campaign)}>
-            <Paperclip size={14} aria-hidden="true" />
-            <span className="truncate">{campaign.attachmentFilename}</span>
-            <Eye size={14} aria-hidden="true" />
-            <span className="sr-only">Open attachment</span>
-          </button>
+          <Button variant="secondary" block icon={BookOpen} className="quest-card__lesson" onClick={() => onPreviewAttachment(campaign)}>
+            View Lesson
+            <span className="sr-only">: {campaign.attachmentFilename}</span>
+          </Button>
         )}
 
         <div className="card__footer">

@@ -59,6 +59,9 @@ export const colors = {
     xpTrack: "#E9E2F8",
     gold: "#936500",
     goldSoft: "#FFF1C7",
+    // Rank A. A true yellow; #B58300 is the brightest yellow that still gives 3:1 against yellowSoft (AA, large text).
+    yellow: "#B58300",
+    yellowSoft: "#FFF3B8",
     silver: "#58667A",
     silverSoft: "#E8EEF7",
     bronze: "#9A552F",
@@ -123,6 +126,8 @@ export const colors = {
     xpTrack: "#423657",
     gold: "#F2D477",
     goldSoft: "#463C20",
+    yellow: "#FFD84D",
+    yellowSoft: "#4A4020",
     silver: "#D0D8E7",
     silverSoft: "#34405A",
     bronze: "#E5A17C",

@@ -14,7 +14,7 @@ import { DEFAULT_GAME_SETTINGS, SENSITIVITY_RANGE } from "../../lib/gameSettings
 //   onRestartCheckpoint() - start the game again from the last checkpoint
 //   onRestartGame()       - delete the saved progress and start over; returns a promise that gives
 //                           an error text when it failed, or nothing when it worked
-//   onExit()              - leave the game for the room
+//   onExit()              - leave the game (for the room, or for the campaign page: exitTarget is the word shown)
 //   onSettingsChange(s)   - the volume or the mouse sensitivity changed
 // Anything that throws away progress asks "are you sure?" first, inside the menu.
 //
@@ -41,7 +41,7 @@ const CONTROLS = [
 
 const IGNORE_ESC_MS = 400
 
-function PauseMenu({ settings, onSettingsChange, onResume, onRestartCheckpoint, onRestartGame, onExit }) {
+function PauseMenu({ settings, onSettingsChange, onResume, onRestartCheckpoint, onRestartGame, onExit, exitTarget = "room" }) {
     const [view, setView] = useState("main") // main | controls | options | checkpoint | game | exit
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState("")
@@ -117,7 +117,7 @@ function PauseMenu({ settings, onSettingsChange, onResume, onRestartCheckpoint, 
                                 <RefreshCcw size={18} aria-hidden="true" /> Restart game
                             </button>
                             <button type="button" className="pause-menu__btn pause-menu__btn--danger" onClick={() => go("exit")}>
-                                <LogOut size={18} aria-hidden="true" /> Exit to room
+                                <LogOut size={18} aria-hidden="true" /> Exit to {exitTarget}
                             </button>
                         </div>
                     </>

@@ -16,7 +16,7 @@ export const RULES_STATUS = "preview"; // flip to "approved" once signed off
 
 export const SCORING = {
   campaignComplete: 100,
-  rankBonus: { A: 50, B: 30, C: 15, D: 5 },
+  rankBonus: { S: 75, A: 50, B: 30, C: 15, D: 5 },
 };
 
 // Total XP needed to REACH each level. Level 1 starts at 0.

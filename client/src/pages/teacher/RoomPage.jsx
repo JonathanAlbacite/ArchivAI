@@ -1,7 +1,7 @@
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import {
-    BookOpen, Copy, CopyPlus, Eye, EyeOff, KeyRound, MoreVertical, Paperclip, Pencil, Play, Rocket, Search, Sparkles, Trash2, UserPlus, Users, Wifi,
+    BookOpen, ChartNoAxesColumn, ChevronRight, Copy, CopyPlus, Eye, EyeOff, KeyRound, MoreVertical, Paperclip, Pencil, Play, Rocket, Search, Sparkles, Trash2, UserPlus, Users, Wifi,
 } from 'lucide-react'
 import GameStage from '../../components/game/GameStage'
 import CampaignEditor from '../../components/teacher/campaignEditor/CampaignEditor'
@@ -10,13 +10,13 @@ import { SceneBadge } from '../../components/SceneIcon'
 import { BooksArt } from '../../components/Illustrations'
 import {
     Alert, Avatar, Badge, Breadcrumbs, Button, Card, ConfirmDialog, EmptyState, IconButton, Menu, Modal, OnlineIndicator, PageHeader,
-    Segmented, Skeleton, SkeletonCards, Stat, StatusChip, Tabs, TextAreaField, TextField,
+    RankMedal, Segmented, Skeleton, SkeletonCards, Stat, StatusChip, Tabs, TextAreaField, TextField,
 } from '../../components/ui'
 import useRoomMembers from '../../lib/useRoomMembers'
 import { api, errorMessage } from '../../lib/api'
 import { clearSession } from '../../lib/session'
 import { useToast } from '../../lib/toast'
-import { plural } from '../../lib/format'
+import { formatDuration, plural } from '../../lib/format'
 
 const hasPlayHistory = (c) => (c._count?.sessions || 0) + (c._count?.progress || 0) > 0
 
@@ -133,6 +133,9 @@ function RoomPage() {
     const [showEditRoom, setShowEditRoom] = useState(false)
     const [activeCampaign, setActiveCampaign] = useState(null)
     const [startingId, setStartingId] = useState(null)
+    // The signed-in teacher's (or admin's) OWN latest finished run of each campaign, by campaign id.
+    // The server answers from the login token, so nobody else's runs, and nobody else, can see it.
+    const [myRuns, setMyRuns] = useState({})
     // { kind: "delete" | "unpublish" | "publish" | "removeStudent", target }
     const [confirm, setConfirm] = useState(null)
     const [confirmBusy, setConfirmBusy] = useState(false)
@@ -164,6 +167,31 @@ function RoomPage() {
         load()
         return () => { cancelled = true }
     }, [id, navigate, reloadKey])
+
+    // Loads the signed-in user's own latest run of every campaign in the room (404 = no run yet).
+    // Runs again whenever the room reloads, for example after coming back from a preview run.
+    useEffect(() => {
+        if (!room?.campaigns?.length) return undefined
+        let cancelled = false
+        const loadRuns = async () => {
+            const entries = await Promise.all(room.campaigns.map(async (c) => {
+                try {
+                    const { ok, data } = await api(`/campaigns/${c.id}/results/latest`)
+                    return [c.id, ok ? data : null]
+                } catch {
+                    return [c.id, null]
+                }
+            }))
+            if (!cancelled) setMyRuns(Object.fromEntries(entries))
+        }
+        loadRuns()
+        return () => { cancelled = true }
+    }, [room])
+
+    // The Your latest run box: opens that run's results page and plays the score animation again.
+    const handleViewRun = (campaign) => {
+        navigate(`/results/${campaign.id}`, { state: { roomId: id, replay: true } })
+    }
 
     const copyCode = async () => {
         try {
@@ -450,7 +478,7 @@ function RoomPage() {
                                                                     {c.attachmentFilename && <Badge tone="outline" icon={Paperclip}>Attachment</Badge>}
                                                                 </div>
                                                                 <h3 className="card__title">
-                                                                    <button type="button" className="link-button campaign-row__title" onClick={() => setViewCampaignId(c.id)}>
+                                                                    <button type="button" className="link-button campaign-row__title" onClick={() => navigate(`/teacher/room/${id}/campaign/${c.id}`)}>
                                                                         {c.title}
                                                                     </button>
                                                                 </h3>
@@ -458,11 +486,35 @@ function RoomPage() {
                                                                 <p className="text-xs text-muted">
                                                                     {plural(c._count?.sessions || 0, "finished run")} · {plural(c._count?.progress || 0, "player")} with saved progress
                                                                 </p>
+                                                                {myRuns[c.id] && (
+                                                                    <div className="campaign-row__mine">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="quest-card__best quest-card__best--link"
+                                                                            onClick={() => handleViewRun(c)}
+                                                                            aria-label={`View the results of your latest run of ${c.title}: ${myRuns[c.id].rank ? `Rank ${myRuns[c.id].rank}` : "no rank"}, ${formatDuration(myRuns[c.id].totalTime)}`}
+                                                                        >
+                                                                            <RankMedal rank={myRuns[c.id].rank} size={40} />
+                                                                            <div className="grow">
+                                                                                <p className="text-xs text-muted">Your latest run · only you can see this</p>
+                                                                                <p className="text-sm font-semibold">
+                                                                                    {myRuns[c.id].rank ? `Rank ${myRuns[c.id].rank}` : "No rank"} · {formatDuration(myRuns[c.id].totalTime)}
+                                                                                </p>
+                                                                            </div>
+                                                                            <ChevronRight size={18} aria-hidden="true" className="quest-card__best-arrow" />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                             <div className="campaign-row__actions">
                                                                 <Button size="sm" variant="secondary" icon={Play} onClick={() => handlePlay(c)} loading={startingId === c.id} disabled={startingId !== null && startingId !== c.id}>
                                                                     Preview<span className="sr-only">: {c.title}</span>
                                                                 </Button>
+                                                                {c.isPublished && (
+                                                                    <Button size="sm" variant="soft" icon={ChartNoAxesColumn} to={`/teacher/room/${id}/campaign/${c.id}/progress`}>
+                                                                        Student progress<span className="sr-only">: {c.title}</span>
+                                                                    </Button>
+                                                                )}
                                                                 {editable && (
                                                                     <Button size="sm" variant="soft" icon={Pencil} onClick={() => openEditCampaign(c.id)} loading={loadingEditId === c.id}>
                                                                         Edit<span className="sr-only">: {c.title}</span>
@@ -473,6 +525,7 @@ function RoomPage() {
                                                                     renderTrigger={(props) => <IconButton icon={MoreVertical} size="sm" label={`More options for ${c.title}`} {...props} />}
                                                                     items={[
                                                                         { label: "View entries", icon: Eye, onSelect: () => setViewCampaignId(c.id) },
+                                                                        hasPlayHistory(c) && { label: "Student progress", icon: ChartNoAxesColumn, onSelect: () => navigate(`/teacher/room/${id}/campaign/${c.id}/progress`) },
                                                                         !c.isPublished && { label: "Publish", icon: Rocket, onSelect: () => setConfirm({ kind: "publish", target: c }) },
                                                                         c.isPublished && { label: "Unpublish", icon: EyeOff, onSelect: () => setConfirm({ kind: "unpublish", target: c }) },
                                                                         { label: "Duplicate as new draft", icon: CopyPlus, onSelect: () => handleDuplicateCampaign(c) },
@@ -517,8 +570,8 @@ function RoomPage() {
                                     )}
 
                                     <Alert tone="info">
-                                        Students can also join themselves with the room code <strong className="mono">{room?.roomCode}</strong>. Per-student results aren't
-                                        available yet - the server has no endpoint for them. Run totals per campaign are on the Campaigns tab.
+                                        Students can also join themselves with the room code <strong className="mono">{room?.roomCode}</strong>. To see how each student is
+                                        doing, open "Student progress" on a campaign in the Campaigns tab.
                                     </Alert>
 
                                     {!room ? (

@@ -1,35 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CheckCircle2, Clock, Compass, DoorOpen, KeyRound, Palette, Trophy } from "lucide-react";
+import { Clock, Compass, KeyRound, Palette, Trophy } from "lucide-react";
 import RoomCard from "../../components/RoomCard";
 import { SceneBadge } from "../../components/SceneIcon";
 import { BooksArt } from "../../components/Illustrations";
-import {
-  Alert,
-  Avatar,
-  Badge,
-  Button,
-  Card,
-  Confetti,
-  EmptyState,
-  HelpTip,
-  Modal,
-  PageHeader,
-  RankMedal,
-  SkeletonCards,
-  Stat,
-  TextField,
-  XPBar,
-} from "../../components/ui";
+import { Alert, Button, Card, EmptyState, Modal, PageHeader, RankMedal, SkeletonCards, TextField } from "../../components/ui";
 import { api, errorMessage } from "../../lib/api";
 import { useStudentOverview } from "../../lib/studentProgress";
-import { levelInfo, totalXp, SCORING } from "../../lib/gamification";
 // BADGES - ON HOLD (not agreed yet). To turn back on, uncomment the lines marked "BADGES" in this
 // file (and add Award, Sparkles to the lucide import), plus BadgeShelf.jsx, BADGES in
 // lib/gamification.js and the badge styles in styles/pages.css.
 // import BadgeShelf from "../../components/student/BadgeShelf";
 // import { deriveStats, earnedBadges } from "../../lib/gamification";
-import { clearSession, getName, getUserId } from "../../lib/session";
+import { clearSession, getName } from "../../lib/session";
 import { useToast } from "../../lib/toast";
 import { formatDuration } from "../../lib/format";
 
@@ -37,8 +20,6 @@ const greeting = () => {
   const h = new Date().getHours();
   return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
 };
-
-const levelKey = () => `archivai_seen_level_${getUserId() ?? "anon"}`;
 
 function JoinRoomModal({ onClose, onJoined }) {
   const [code, setCode] = useState("");
@@ -125,39 +106,14 @@ function StudentDashboard() {
   const { rooms } = overview;
   const ready = overview.status === "ready";
 
-  // Only campaigns with a finished run count toward XP, once each.
+  // The campaigns with a finished run, newest first, for "Recently completed".
   const runs = useMemo(
     () => rooms.flatMap((r) => (r.campaigns || []).filter((c) => c.run).map((c) => ({ ...c.run, roomId: r.id, scene: c.scene, title: c.title }))),
     [rooms]
   );
-  const xp = totalXp(runs);
   // BADGES: const stats = deriveStats(runs, rooms.length);
   // BADGES: const earned = new Set(earnedBadges(stats).map((b) => b.id));
-  const level = levelInfo(xp);
   const recent = [...runs].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 4);
-
-  // A short celebration the first time a new level is seen in this browser.
-  const [seenLevel] = useState(() => {
-    try {
-      return Number(localStorage.getItem(levelKey())) || 0;
-    } catch {
-      return 0;
-    }
-  });
-  const leveledUp = ready && seenLevel > 0 && level.level > seenLevel;
-  const announced = useRef(false);
-  useEffect(() => {
-    if (!ready) return;
-    try {
-      localStorage.setItem(levelKey(), String(level.level));
-    } catch {
-      // storage blocked - no celebration memory, nothing else breaks
-    }
-    if (leveledUp && !announced.current) {
-      announced.current = true;
-      toast.success(`You reached level ${level.level}.`, { title: "Level up!" });
-    }
-  }, [ready, level.level, leveledUp, toast]);
 
   const handleJoined = (room) => {
     setShowJoin(false);
@@ -170,7 +126,7 @@ function StudentDashboard() {
       <PageHeader
         eyebrow="Student"
         title={`${greeting()}, ${name || "there"}`}
-        description="Your rooms, campaigns and progress."
+        description="Your rooms and campaigns."
         actions={
           <>
             <Button variant="secondary" icon={Palette} to="/student/character">
@@ -188,34 +144,6 @@ function StudentDashboard() {
           {overview.error}
         </Alert>
       )}
-
-      {/* Progress hero */}
-      <Card className="hero-card">
-        {leveledUp && <Confetti />}
-        <div className="hero-card__who">
-          <Avatar name={name} size={64} />
-          <div className="grow">
-            <div className="row" style={{ "--gap": "8px" }}>
-              <h2 className="hero-card__title">Your progress</h2>
-              <Badge tone="xp">Preview</Badge>
-              <HelpTip
-                label="How XP works"
-                text={`Preview rules: each campaign you finish is worth ${SCORING.campaignComplete} XP, plus a rank bonus (A +${SCORING.rankBonus.A}, B +${SCORING.rankBonus.B}, C +${SCORING.rankBonus.C}, D +${SCORING.rankBonus.D}) from your latest run. Each campaign counts once.`}
-              />
-            </div>
-            {ready ? (
-              <XPBar {...level} />
-            ) : (
-              <div className="skeleton" style={{ height: 44, marginTop: 8 }} aria-hidden="true" />
-            )}
-          </div>
-        </div>
-        <div className="stat-grid" style={{ "--cols": 2 }}>
-          <Stat icon={CheckCircle2} tone="success" label="Campaigns completed" value={ready ? runs.length : "–"} />
-          <Stat icon={DoorOpen} tone="primary" label="Rooms joined" value={ready ? rooms.length : "–"} />
-          {/* BADGES (set --cols back to 3): <Stat icon={Award} tone="gold" label="Badges earned" value={ready ? `${earned.size}/5` : "–"} /> */}
-        </div>
-      </Card>
 
       <section className="section" aria-labelledby="rooms-heading">
         <div className="section__head">

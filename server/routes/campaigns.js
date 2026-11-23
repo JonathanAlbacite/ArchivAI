@@ -6,6 +6,7 @@ import fssync from "fs";
 import prisma from "../lib/prisma.js";
 import { protect, teacherOnly } from "../middleware/auth.js";
 import { hasPlayHistory } from "../lib/clueTemplates.js";
+import { computeScore } from "../lib/scoring.js";
 
 const router = express.Router();
 
@@ -691,7 +692,7 @@ router.get("/campaigns/:id/load", protect, async (req, res) => {
 // teacher or admin) can submit; the user is taken from the token.
 router.post("/campaigns/:id/results", protect, async (req, res) => {
   const campaignId = parseInt(req.params.id);
-  const { totalTime, rank, completedAt, attempts, mistakes, checkpointsReached, checkpointsTotal, locks } = req.body;
+  const { totalTime, rank, completedAt, attempts, mistakes, checkpointsReached, checkpointsTotal, locks, scoreVersion, clues, notes, journal } = req.body;
 
   // Counts from the game are kept only if they are whole numbers of 0 or more.
   const toCount = (value) => (Number.isInteger(value) && value >= 0 ? value : undefined);
@@ -708,6 +709,24 @@ router.post("/campaigns/:id/results", protect, async (req, res) => {
       }))
     : undefined;
 
+  // The score and the rank are worked out here from the facts of the run (see lib/scoring.js). A game
+  // build from before the score existed sends no scoreVersion; its own rank is kept and no score is made.
+  const scored = Number.isInteger(scoreVersion) && scoreVersion >= 1 && Number.isFinite(totalTime) && totalTime >= 0;
+  const scoreDetails = scored ? computeScore({ totalTime, locks: lockResults, clues, notes }) : undefined;
+
+  // The journal list of the run (every clue and note of the reel, in order, and whether it was picked up) is
+  // only shown on the results page, so it is kept inside scoreDetails and does not change the score.
+  if (scoreDetails && Array.isArray(journal) && journal.length > 0) {
+    scoreDetails.journal = journal.slice(0, 200).map((item, index) => ({
+      order: index + 1,
+      id: String(item?.id ?? "").slice(0, 60),
+      name: String(item?.name ?? "").slice(0, 120),
+      type: item?.type === "Clue" ? "Clue" : "Note",
+      standalone: !!item?.standalone,
+      found: !!item?.found,
+    }));
+  }
+
   try {
     const session = await prisma.campaignSession.create({
       data: {
@@ -715,7 +734,9 @@ router.post("/campaigns/:id/results", protect, async (req, res) => {
         studentId: req.user.id,
         completedAt: completedAt ? new Date(completedAt) : new Date(),
         totalTime,
-        rank,
+        rank: scoreDetails ? scoreDetails.rank : rank,
+        score: scoreDetails ? scoreDetails.score : undefined,
+        scoreDetails,
         mistakes: toCount(mistakes),
         checkpointsReached: toCount(checkpointsReached),
         checkpointsTotal: toCount(checkpointsTotal),
@@ -744,6 +765,23 @@ router.post("/campaigns/:id/results", protect, async (req, res) => {
   }
 });
 
+// One finished run (a CampaignSession row with its campaign) as the results page needs it.
+const resultPayload = (session) => ({
+  id: session.id,
+  campaignId: session.campaignId,
+  campaignTitle: session.campaign.title,
+  scene: session.campaign.scene,
+  completedAt: session.completedAt,
+  totalTime: session.totalTime,
+  rank: session.rank,
+  mistakes: session.mistakes,
+  checkpointsReached: session.checkpointsReached,
+  checkpointsTotal: session.checkpointsTotal,
+  locks: Array.isArray(session.lockResults) ? session.lockResults : [],
+  score: session.score,
+  scoreDetails: session.scoreDetails && typeof session.scoreDetails === "object" ? session.scoreDetails : null,
+});
+
 // Website: The logged-in user's most recent finished run of a campaign, for the results page
 // that opens when the game ends. The user is taken from the token. Answers 404 when the user
 // has no finished run of this campaign yet.
@@ -759,19 +797,29 @@ router.get("/campaigns/:id/results/latest", protect, async (req, res) => {
 
     if (!session) return res.status(404).json({ message: "No finished run found" });
 
-    res.json({
-      id: session.id,
-      campaignId: session.campaignId,
-      campaignTitle: session.campaign.title,
-      scene: session.campaign.scene,
-      completedAt: session.completedAt,
-      totalTime: session.totalTime,
-      rank: session.rank,
-      mistakes: session.mistakes,
-      checkpointsReached: session.checkpointsReached,
-      checkpointsTotal: session.checkpointsTotal,
-      locks: Array.isArray(session.lockResults) ? session.lockResults : [],
+    res.json(resultPayload(session));
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Website: one earlier finished run of the logged-in user, picked from the "Previous attempts" table
+// on the results page. Same answer as results/latest. The user is taken from the token and must own
+// the run, so nobody can open another person's run by guessing its id (404 in that case).
+// The (\\d+) keeps this route from catching results/latest and results/history.
+router.get("/campaigns/:id/results/:sessionId(\\d+)", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+  const sessionId = parseInt(req.params.sessionId);
+
+  try {
+    const session = await prisma.campaignSession.findFirst({
+      where: { id: sessionId, campaignId, studentId: req.user.id, completedAt: { not: null } },
+      include: { campaign: { select: { title: true, scene: true } } },
     });
+
+    if (!session) return res.status(404).json({ message: "No finished run found" });
+
+    res.json(resultPayload(session));
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

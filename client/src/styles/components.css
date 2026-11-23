@@ -790,8 +790,9 @@ select.input {
   line-height: 1;
 }
 
-.medal[data-rank="A"] { --medal-fg: var(--color-gold); --medal-bg: var(--color-gold-soft); }
-.medal[data-rank="B"] { --medal-fg: var(--color-silver); --medal-bg: var(--color-silver-soft); }
+.medal[data-rank="S"] { --medal-fg: var(--color-secondary); --medal-bg: var(--color-secondary-soft); }
+.medal[data-rank="A"] { --medal-fg: var(--color-yellow); --medal-bg: var(--color-yellow-soft); }
+.medal[data-rank="B"] { --medal-fg: var(--color-primary); --medal-bg: var(--color-primary-soft); }
 .medal[data-rank="C"] { --medal-fg: var(--color-bronze); --medal-bg: var(--color-bronze-soft); }
 .medal[data-rank="D"] { --medal-fg: var(--color-slate); --medal-bg: var(--color-slate-soft); }
 .medal[data-rank="none"] {

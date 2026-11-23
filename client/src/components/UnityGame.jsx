@@ -92,7 +92,7 @@ const BUILD_FOLDER = "unitybuild"
 // client/public/unitybuild/Build/ if this ever drifts.
 const BUILD_NAME = "unitybuild"
 
-function UnityGame({ token, roomId, campaignId, onError, onRunFinished, onStatusChange, onExit }) {
+function UnityGame({ token, roomId, campaignId, onError, onRunFinished, onStatusChange, onExit, exitTarget }) {
     const canvasRef = useRef(null)
     const containerRef = useRef(null)
     const instanceRef = useRef(null)
@@ -255,7 +255,12 @@ function UnityGame({ token, roomId, campaignId, onError, onRunFinished, onStatus
         const gameWantsLock = () => window.__archivistCursorShouldBeLocked === true
 
         const handleLockChange = () => {
-            if (!document.pointerLockElement && gameWantsLock() && !pausedRef.current) requestPause()
+            if (document.pointerLockElement || !gameWantsLock() || pausedRef.current) return
+            // The browser reports a lock loss a moment late. Wait briefly so a quick mode switch
+            // (for example closing a lock panel) is not mistaken for the player pressing Esc.
+            setTimeout(() => {
+                if (!document.pointerLockElement && gameWantsLock() && !pausedRef.current) requestPause()
+            }, 300)
         }
         const handleKeyDown = (event) => {
             if (event.key !== "Escape" || pausedRef.current) return
@@ -368,6 +373,7 @@ function UnityGame({ token, roomId, campaignId, onError, onRunFinished, onStatus
                         onRestartCheckpoint={restartFromCheckpoint}
                         onRestartGame={restartGame}
                         onExit={() => onExit?.()}
+                        exitTarget={exitTarget}
                     />
                 )}
 

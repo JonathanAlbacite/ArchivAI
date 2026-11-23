@@ -25,6 +25,9 @@ function StudentRoomPage() {
     const members = useRoomMembers(id)
     const [activeCampaign, setActiveCampaign] = useState(null)
     const [startingId, setStartingId] = useState(null)
+    // Where leaving the game goes: "campaign" when the game was started from the campaign page, so
+    // Back returns there instead of skipping to the room; otherwise the room.
+    const [exitTo, setExitTo] = useState(null)
     const [playError, setPlayError] = useState(null)
     const [previewCampaign, setPreviewCampaign] = useState(null)
 
@@ -61,7 +64,7 @@ function StudentRoomPage() {
     // asks the API which campaign is currently active for that room. If
     // that PATCH fails, the game never opens and the player never sees
     // a game that would just fail to find a campaign to load.
-    const handlePlay = async (campaign) => {
+    const handlePlay = async (campaign, origin = null) => {
         setPlayError(null)
         setStartingId(campaign.id)
 
@@ -71,6 +74,7 @@ function StudentRoomPage() {
                 body: { campaignId: campaign.id },
             })
             if (!ok) throw new Error(errorMessage(data, "Could not start this campaign"))
+            setExitTo(origin)
             setActiveCampaign(campaign)
         } catch (err) {
             setPlayError(err.message === "Failed to fetch" ? "Couldn't reach the server. Check your connection and try again." : err.message)
@@ -85,10 +89,11 @@ function StudentRoomPage() {
     useEffect(() => {
         if (!room || !autoPlayId || autoPlayed.current) return
         autoPlayed.current = true
+        const origin = location.state?.fromCampaign ? "campaign" : null
         navigate(location.pathname, { replace: true, state: null })
         const campaign = room.campaigns?.find((c) => c.id === autoPlayId)
         if (campaign) {
-            const t = setTimeout(() => handlePlay(campaign), 0)
+            const t = setTimeout(() => handlePlay(campaign, origin), 0)
             return () => clearTimeout(t)
         }
         // handlePlay is recreated each render; this only needs to run once per autoplay request
@@ -96,8 +101,17 @@ function StudentRoomPage() {
     }, [room, autoPlayId])
 
     const handleReturnToRoom = () => {
+        const backTo = exitTo === "campaign" && activeCampaign ? activeCampaign.id : null
         setActiveCampaign(null)
+        setExitTo(null)
         setReloadKey((k) => k + 1)
+        if (backTo !== null) navigate(`/student/room/${id}/campaign/${backTo}`)
+    }
+
+    // The Latest run box on a campaign card. Opens that run's results page; replay makes the page play
+    // the calculating screen and the score animation again (see RunResults.jsx).
+    const handleViewRun = (campaign) => {
+        navigate(`/results/${campaign.id}`, { state: { roomId: id, replay: true } })
     }
 
     const handleGameError = () => {
@@ -121,6 +135,7 @@ function StudentRoomPage() {
             <GameStage
                 campaign={activeCampaign}
                 roomId={id}
+                exitTarget={exitTo === "campaign" ? "campaign" : "room"}
                 onExit={handleReturnToRoom}
                 onError={handleGameError}
                 onRunFinished={handleRunFinished}
@@ -184,6 +199,8 @@ function StudentRoomPage() {
                                             disabled={startingId !== null && startingId !== campaign.id}
                                             onPlay={handlePlay}
                                             onPreviewAttachment={setPreviewCampaign}
+                                            onViewRun={handleViewRun}
+                                            onOpen={(c) => navigate(`/student/room/${id}/campaign/${c.id}`)}
                                         />
                                     </li>
                                 ))}

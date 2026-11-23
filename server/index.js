@@ -12,6 +12,8 @@ import environmentRoutes from "./routes/environments.js";
 import characterLoadoutRoutes from "./routes/characterLoadout.js";
 import characterSetRoutes from "./routes/characterSets.js";
 import musicTrackRoutes from "./routes/musicTracks.js";
+import sceneTrophyRoutes from "./routes/sceneTrophies.js";
+import studentProgressRoutes from "./routes/studentProgress.js";
 import { runAllSeeds } from "./scripts/seedAll.js";
 
 const app = express();
@@ -30,6 +32,10 @@ app.use("/uploads/character-sets", express.static(path.join(process.cwd(), "uplo
 // <audio> element can play it, scoped to this one subfolder for the same reason as above.
 app.use("/uploads/music", express.static(path.join(process.cwd(), "uploads", "music")));
 
+// Admin-uploaded scene trophy models (see routes/sceneTrophies.js) - served directly so the website's
+// three.js GLTFLoader can fetch them cross-origin, scoped to this one subfolder for the same reason as above.
+app.use("/uploads/trophies", express.static(path.join(process.cwd(), "uploads", "trophies")));
+
 app.use("/api/auth", authRoutes);
 
 app.use("/api/rooms", roomRoutes);
@@ -42,6 +48,8 @@ app.use("/api", environmentRoutes);
 app.use("/api/character-loadout", characterLoadoutRoutes);
 app.use("/api", characterSetRoutes);
 app.use("/api", musicTrackRoutes);
+app.use("/api", sceneTrophyRoutes);
+app.use("/api", studentProgressRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "Archivist Legacy API is running" });
