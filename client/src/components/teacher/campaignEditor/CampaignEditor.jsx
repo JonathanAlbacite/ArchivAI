@@ -19,6 +19,13 @@ import {
   snapshotOf,
 } from "./editorModel";
 
+// The levels offered in the "Generate with AI" pop-up (see clueTemplates.js on the server).
+const DIFFICULTY_OPTIONS = [
+  { value: "easy", label: "Easy", hint: "Direct questions in the document's own words" },
+  { value: "medium", label: "Medium", hint: "Reworded questions, hints with related facts" },
+  { value: "hard", label: "Hard", hint: "Questions that describe the answer, longer reworded hints" },
+];
+
 const SAVE_PHASES = {
   details: "Saving details...",
   entries: "Saving entries...",
@@ -77,18 +84,16 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
   const [partialDraft, setPartialDraft] = useState(false);
   const cluesSavedRef = useRef(false);
 
-  // "Draft entries from a lesson" flow: idle -> uploading -> waiting (the AI
-  // assistant chat opens with the uploaded file and asks Easy / Medium / Hard)
-  // -> generating -> review (drafts awaiting approve/reject) -> idle once inserted.
+  // "Draft entries from a lesson" flow: idle -> choosing (a pop-up asks Easy /
+  // Medium / Hard) -> uploading -> generating -> review (drafts awaiting
+  // approve/reject) -> idle once inserted.
   const [lessonStep, setLessonStep] = useState("idle");
   const [lessonError, setLessonError] = useState("");
   const [generatedClues, setGeneratedClues] = useState([]);
   const [generatedNotes, setGeneratedNotes] = useState([]);
   const [notesError, setNotesError] = useState("");
   const reviewing = lessonStep === "review";
-  // The uploaded lesson the chat is asking a difficulty for, and the vault
-  // picked right now, kept in refs so the chat's reply (an event) sees the latest values.
-  const pendingLessonRef = useRef(null);
+  // The vault picked right now, kept in a ref so the async generation sees the latest value.
   const sceneRef = useRef(scene);
 
   // Campaign resource file - a plain file for students to view/download
@@ -233,11 +238,10 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
   };
 
   // ---------- AI generation ----------
-  // Uploads the attached file and extracts its text, then opens the AI
-  // assistant chat with that file so the teacher picks Easy, Medium or Hard
-  // there (see TeacherChatWidget). Entries are drafted once the chat reports
-  // the difficulty (handleDifficultyChosen below) - one per template slot.
-  const handleAutoGenerate = async () => {
+  // "Generate with AI" first checks the attached file and the scene, then opens
+  // a small pop-up where the teacher picks Easy, Medium or Hard. Picking a level
+  // uploads the file, extracts its text and drafts one entry per template slot.
+  const handleAutoGenerate = () => {
     const file = attachmentFile;
     if (!file) return;
 
@@ -253,6 +257,14 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
     }
 
     setLessonError("");
+    setLessonStep("choosing");
+  };
+
+  const cancelGeneration = () => setLessonStep("idle");
+
+  const handleDifficultyChosen = async (difficulty) => {
+    const file = attachmentFile;
+    if (!file) return;
     setLessonStep("uploading");
 
     try {
@@ -260,23 +272,11 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
       formData.append("file", file);
       const { ok, data } = await api("/lesson-modules/upload", { method: "POST", body: formData });
       if (!ok) throw new Error(errorMessage(data, "Upload failed"));
-
-      pendingLessonRef.current = data.id;
-      setLessonStep("waiting");
-      window.dispatchEvent(
-        new CustomEvent("archivai:open-chat", {
-          detail: { lessonModuleId: data.id, filename: data.originalFilename || file.name },
-        })
-      );
+      await generateClues(data.id, difficulty);
     } catch (err) {
       setLessonError(err.message === "Failed to fetch" ? "Couldn't reach the server." : err.message);
       setLessonStep("error");
     }
-  };
-
-  const cancelGeneration = () => {
-    pendingLessonRef.current = null;
-    setLessonStep("idle");
   };
 
   // Asks the AI to draft the clues (GeneratedClue rows) at the chosen difficulty.
@@ -315,19 +315,6 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
       setLessonStep("error");
     }
   };
-
-  // The chat tells us which difficulty the teacher picked for the file this
-  // editor uploaded (ignored for any other file).
-  useEffect(() => {
-    const handleDifficultyChosen = (e) => {
-      const { lessonModuleId, difficulty } = e.detail || {};
-      if (!lessonModuleId || lessonModuleId !== pendingLessonRef.current) return;
-      pendingLessonRef.current = null;
-      generateClues(lessonModuleId, difficulty);
-    };
-    window.addEventListener("archivai:difficulty-chosen", handleDifficultyChosen);
-    return () => window.removeEventListener("archivai:difficulty-chosen", handleDifficultyChosen);
-  }, []);
 
   const saveClueEdit = async (id, { clueText, answers, note }) => {
     try {
@@ -678,21 +665,12 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
             <div className="grow stack stack-sm">
               <p className="font-semibold">Draft the entries with AI</p>
               <p className="text-sm text-muted">
-                Reads the attached {LESSON_EXTENSIONS.join(", ")} file and drafts one entry per slot. You pick the difficulty in the assistant panel, then approve
-                each draft.
+                Reads the attached {LESSON_EXTENSIONS.join(", ")} file and drafts one entry per slot. You pick the difficulty, then approve each draft.
               </p>
               {lessonStep === "uploading" && (
                 <p className="text-sm row" style={{ "--gap": "8px" }}>
                   <Spinner size={16} /> Uploading and reading the lesson...
                 </p>
-              )}
-              {lessonStep === "waiting" && (
-                <div className="row">
-                  <p className="text-sm font-semibold">Choose Easy, Medium or Hard in the assistant panel.</p>
-                  <Button size="sm" variant="ghost" onClick={cancelGeneration}>
-                    Cancel
-                  </Button>
-                </div>
               )}
               {lessonStep === "generating" && (
                 <p className="text-sm row" style={{ "--gap": "8px" }}>
@@ -706,7 +684,7 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
                   variant="soft"
                   icon={Sparkles}
                   onClick={handleAutoGenerate}
-                  disabled={!attachmentFile || !detailsReady || ["uploading", "waiting", "generating"].includes(lessonStep) || submitting}
+                  disabled={!attachmentFile || !detailsReady || ["choosing", "uploading", "generating"].includes(lessonStep) || submitting}
                   loading={lessonStep === "uploading" || lessonStep === "generating"}
                 >
                   Generate with AI
@@ -946,6 +924,30 @@ function CampaignEditor({ roomId, campaign, onClose, onSaved }) {
           </div>
         </div>
       </Modal>
+
+      {lessonStep === "choosing" && (
+        <Modal
+          title="How hard should the questions be?"
+          description={attachmentFile ? `From ${attachmentFile.name}` : undefined}
+          size="sm"
+          onClose={cancelGeneration}
+          closeOnBackdrop
+          footer={
+            <Button variant="secondary" onClick={cancelGeneration}>
+              Cancel
+            </Button>
+          }
+        >
+          <div className="difficulty-picker" role="group" aria-label="Question difficulty">
+            {DIFFICULTY_OPTIONS.map((option) => (
+              <button key={option.value} type="button" className="difficulty-picker__option" data-level={option.value} onClick={() => handleDifficultyChosen(option.value)}>
+                <span className="difficulty-picker__label">{option.label}</span>
+                <span className="difficulty-picker__hint">{option.hint}</span>
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       {pendingScene && (
         <ConfirmDialog

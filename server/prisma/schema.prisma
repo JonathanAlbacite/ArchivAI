@@ -24,6 +24,7 @@ model User {
   enrolledRooms     RoomStudent[]
   sessions          CampaignSession[]
   campaignProgress  CampaignProgress[]
+  campaignReads     CampaignRead[]
   lessonModules     LessonModule[]
   chatConversations ChatConversation[]
   characterLoadout  CharacterLoadout?
@@ -85,6 +86,7 @@ model Campaign {
   standaloneNotes StandaloneNote[]
   sessions CampaignSession[]
   progress CampaignProgress[]
+  reads    CampaignRead[]
 
   // Opposite side of Room.activeCampaign - rooms currently pointing at
   // this campaign as their "live" one. A campaign can be the active
@@ -279,6 +281,21 @@ model CampaignProgress {
   status               String   @default("IN_PROGRESS") // "IN_PROGRESS" or "COMPLETED"
   startedAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  student  User     @relation(fields: [studentId], references: [id])
+
+  @@unique([campaignId, studentId])
+}
+
+// A student finished reading a campaign's attached file in the kid-friendly reader.
+// Students must have one of these before the game will load a campaign that has
+// an attachment (see GET /campaigns/:id/load and /campaigns/:id/reading).
+model CampaignRead {
+  id         Int      @id @default(autoincrement())
+  campaignId Int
+  studentId  Int
+  readAt     DateTime @default(now())
 
   campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   student  User     @relation(fields: [studentId], references: [id])

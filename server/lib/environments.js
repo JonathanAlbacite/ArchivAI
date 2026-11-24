@@ -2,7 +2,7 @@
 //
 // The list lives in the Environment table and is managed by the admin (see routes/environments.js),
 // so nothing else in the server hardcodes scene names any more. Everything that used to check a
-// fixed list - the vault templates, the lesson modules, the teacher chatbot - asks this file.
+// fixed list - the vault templates and the lesson modules - asks this file.
 //
 // An environment's `key` is what Campaign.scene, VaultTemplate.scene and the vault-template URLs
 // store. It is lowercase, made from the name when the environment is created, and never changes
@@ -73,18 +73,6 @@ export const uniqueKey = async (label) => {
   let key = base;
   for (let n = 2; taken.has(key); n++) key = `${base}-${n}`;
   return key;
-};
-
-// The names shown to the chatbot as the allowed scenes. The chatbot's tool definitions
-// (lib/teacherChatTools.js) hold ONE shared array for this, so it is refilled in place, right before
-// each chat request, from the current list - an environment the admin just added is available at
-// once, without a restart.
-export const refreshSceneNames = async (target) => {
-  const all = await listEnvironments();
-  // An empty list is not valid for the model's tool definitions, so a placeholder stands in until
-  // the admin adds an environment (no scene name will match it).
-  target.splice(0, target.length, ...(all.length ? all.map((e) => e.label) : ["(none set up yet)"]));
-  return target;
 };
 
 // "Library, Laboratory" - for error messages.

@@ -6,7 +6,6 @@ import authRoutes from "./routes/auth.js";
 import roomRoutes from "./routes/rooms.js";
 import campaignRoutes from "./routes/campaigns.js";
 import lessonModuleRoutes from "./routes/lessonModules.js";
-import chatRoutes from "./routes/chat.js";
 import vaultTemplateRoutes from "./routes/vaultTemplates.js";
 import environmentRoutes from "./routes/environments.js";
 import characterLoadoutRoutes from "./routes/characterLoadout.js";
@@ -14,6 +13,7 @@ import characterSetRoutes from "./routes/characterSets.js";
 import musicTrackRoutes from "./routes/musicTracks.js";
 import sceneTrophyRoutes from "./routes/sceneTrophies.js";
 import studentProgressRoutes from "./routes/studentProgress.js";
+import ttsRoutes from "./routes/tts.js";
 import { runAllSeeds } from "./scripts/seedAll.js";
 
 const app = express();
@@ -42,7 +42,6 @@ app.use("/api/rooms", roomRoutes);
 
 app.use("/api", campaignRoutes);
 app.use("/api", lessonModuleRoutes);
-app.use("/api/chat", chatRoutes);
 app.use("/api", vaultTemplateRoutes);
 app.use("/api", environmentRoutes);
 app.use("/api/character-loadout", characterLoadoutRoutes);
@@ -50,6 +49,7 @@ app.use("/api", characterSetRoutes);
 app.use("/api", musicTrackRoutes);
 app.use("/api", sceneTrophyRoutes);
 app.use("/api", studentProgressRoutes);
+app.use("/api", ttsRoutes);
 
 app.get("/", (req, res) => {
   res.json({ message: "Archivist Legacy API is running" });

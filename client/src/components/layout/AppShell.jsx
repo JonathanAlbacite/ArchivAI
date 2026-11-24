@@ -6,7 +6,6 @@ import { Avatar, IconButton, Menu } from "../ui";
 import { useThemeMode } from "../../lib/themeMode";
 import { clearSession, getName, getRole, getToken, homeFor } from "../../lib/session";
 import { NAV, ROLE_LABELS, isActivePath } from "./navConfig";
-import TeacherChatWidget from "../teacher/TeacherChatWidget";
 import MusicToggle from "../MusicToggle";
 
 const CHARACTER_PATH = { STUDENT: "/student/character", TEACHER: "/teacher/character", ADMIN: "/admin/character" };
@@ -98,9 +97,8 @@ function NavDrawer({ role, pathname, onClose }) {
 // compact top bar + drawer on mobile, theme toggle and account menu.
 // `allow` lists the roles that may open the nested routes (others are sent
 // to their own home); `accent` picks the role color for the area (admin
-// in Teacher Mode gets the teacher accent); `assistant` mounts the teacher
-// AI chat once for the whole area so it survives navigation.
-function AppShell({ allow, accent, assistant = false }) {
+// in Teacher Mode gets the teacher accent).
+function AppShell({ allow, accent }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { mode, toggle } = useThemeMode();
@@ -186,7 +184,6 @@ function AppShell({ allow, accent, assistant = false }) {
       </div>
 
       {drawerOpen && <NavDrawer role={role} pathname={pathname} onClose={closeDrawer} />}
-      {assistant && <TeacherChatWidget />}
     </div>
   );
 }

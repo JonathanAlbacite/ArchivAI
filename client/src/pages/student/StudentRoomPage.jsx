@@ -4,7 +4,7 @@ import { Map as MapIcon } from 'lucide-react'
 import GameStage from '../../components/game/GameStage'
 import CampaignQuestCard from '../../components/student/CampaignQuestCard'
 import RoomMembers from '../../components/RoomMembers'
-import AttachmentPreviewModal from '../../components/AttachmentPreviewModal'
+import LessonReader from '../../components/student/LessonReader'
 import { BooksArt } from '../../components/Illustrations'
 import { Alert, Breadcrumbs, Button, EmptyState, PageHeader, Skeleton, SkeletonCards } from '../../components/ui'
 import useRoomMembers from '../../lib/useRoomMembers'
@@ -29,7 +29,10 @@ function StudentRoomPage() {
     // Back returns there instead of skipping to the room; otherwise the room.
     const [exitTo, setExitTo] = useState(null)
     const [playError, setPlayError] = useState(null)
-    const [previewCampaign, setPreviewCampaign] = useState(null)
+    // The campaign whose lesson is open in the kid-friendly reader, and where to go after it
+    // (the campaign page's origin, when Play was asked for from there).
+    const [readerCampaign, setReaderCampaign] = useState(null)
+    const [readerOrigin, setReaderOrigin] = useState(null)
 
     useEffect(() => {
         let cancelled = false
@@ -66,6 +69,12 @@ function StudentRoomPage() {
     // a game that would just fail to find a campaign to load.
     const handlePlay = async (campaign, origin = null) => {
         setPlayError(null)
+        // A lesson file must be read first - open the reader instead of the game.
+        if (campaign.attachmentFilename && !campaign.readByMe) {
+            setReaderOrigin(origin)
+            setReaderCampaign(campaign)
+            return
+        }
         setStartingId(campaign.id)
 
         try {
@@ -112,6 +121,16 @@ function StudentRoomPage() {
     // the calculating screen and the score animation again (see RunResults.jsx).
     const handleViewRun = (campaign) => {
         navigate(`/results/${campaign.id}`, { state: { roomId: id, replay: true } })
+    }
+
+    // The reader saved the read: unlock Play on this campaign's card.
+    const handleLessonRead = (campaign) => {
+        setRoom((r) => r && { ...r, campaigns: r.campaigns.map((c) => (c.id === campaign.id ? { ...c, readByMe: true } : c)) })
+    }
+
+    const openReader = (campaign) => {
+        setReaderOrigin(null)
+        setReaderCampaign(campaign)
     }
 
     const handleGameError = () => {
@@ -198,7 +217,7 @@ function StudentRoomPage() {
                                             starting={startingId === campaign.id}
                                             disabled={startingId !== null && startingId !== campaign.id}
                                             onPlay={handlePlay}
-                                            onPreviewAttachment={setPreviewCampaign}
+                                            onRead={openReader}
                                             onViewRun={handleViewRun}
                                             onOpen={(c) => navigate(`/student/room/${id}/campaign/${c.id}`)}
                                         />
@@ -214,8 +233,13 @@ function StudentRoomPage() {
                 </div>
             )}
 
-            {previewCampaign && (
-                <AttachmentPreviewModal campaign={previewCampaign} onClose={() => setPreviewCampaign(null)} />
+            {readerCampaign && (
+                <LessonReader
+                    campaign={readerCampaign}
+                    onClose={() => setReaderCampaign(null)}
+                    onFinished={handleLessonRead}
+                    onPlay={(c) => handlePlay({ ...c, readByMe: true }, readerOrigin)}
+                />
             )}
         </div>
     )

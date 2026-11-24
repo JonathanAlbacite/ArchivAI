@@ -1,4 +1,4 @@
-import { BookOpen, ChevronRight, Play, RotateCcw, StepForward } from "lucide-react";
+import { BookOpen, ChevronRight, Lock, Play, RotateCcw, StepForward } from "lucide-react";
 import { SceneArt } from "../Illustrations";
 import { SceneBadge } from "../SceneIcon";
 import { Button, RankMedal, Skeleton, StatusChip } from "../ui";
@@ -18,11 +18,14 @@ const ACTION = {
 // (.quest-card__open), and onOpen(campaign) opens the campaign's own page (StudentCampaignPage). The buttons
 // inside the card (Latest run, View Lesson, Play) sit above it and do their own thing.
 // The Latest run box is a button: onViewRun(campaign) opens that run's results page.
-function CampaignQuestCard({ campaign, number, status, starting, disabled, onPlay, onPreviewAttachment, onViewRun, onOpen }) {
+// A campaign with an attached lesson file stays locked until the student has read it in the
+// kid-friendly reader (onRead opens it); after that "Read again" stays available.
+function CampaignQuestCard({ campaign, number, status, starting, disabled, onPlay, onRead, onViewRun, onOpen }) {
   useEnvironments();
   const state = status?.state || "notStarted";
   const action = ACTION[state];
   const run = status?.run;
+  const needsReading = !!campaign.attachmentFilename && !campaign.readByMe;
 
   return (
     <article className="quest-card card" style={sceneStyle(campaign.scene)} aria-labelledby={`quest-${campaign.id}-title`}>
@@ -67,17 +70,36 @@ function CampaignQuestCard({ campaign, number, status, starting, disabled, onPla
         )}
 
         {campaign.attachmentFilename && (
-          <Button variant="secondary" block icon={BookOpen} className="quest-card__lesson" onClick={() => onPreviewAttachment(campaign)}>
-            View Lesson
+          <Button
+            variant={needsReading ? "accent" : "secondary"}
+            block
+            icon={BookOpen}
+            className={needsReading ? "quest-card__lesson quest-card__lesson--todo" : "quest-card__lesson"}
+            onClick={() => onRead(campaign)}
+          >
+            {needsReading ? "Read the lesson first" : "Read again"}
             <span className="sr-only">: {campaign.attachmentFilename}</span>
           </Button>
         )}
 
         <div className="card__footer">
-          <Button variant="accent" block icon={action.icon} loading={starting} disabled={disabled} onClick={() => onPlay(campaign)}>
+          <Button
+            variant={needsReading ? "secondary" : "accent"}
+            block
+            icon={needsReading ? Lock : action.icon}
+            loading={starting}
+            disabled={disabled || needsReading}
+            onClick={() => onPlay(campaign)}
+            aria-describedby={needsReading ? `quest-${campaign.id}-locked` : undefined}
+          >
             {starting ? "Starting..." : action.label}
             <span className="sr-only">: {campaign.title}</span>
           </Button>
+          {needsReading && (
+            <p id={`quest-${campaign.id}-locked`} className="quest-card__locked text-xs text-muted">
+              Read the lesson to unlock Play.
+            </p>
+          )}
         </div>
       </div>
     </article>

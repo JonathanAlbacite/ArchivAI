@@ -2,7 +2,7 @@ import prisma from "./prisma.js";
 import { generateText } from "./aiProviderChain.js";
 
 // Shared by routes/lessonModules.js (the campaign editor's "Generate Clues
-// from a Lesson") and teacherChatTools.js (the chat assistant): a campaign's
+// from a Lesson"): a campaign's
 // clues follow its scene's published VaultTemplate - a fixed list of pages,
 // each Normal, MultiChoice or Combo (see ClueType in schema.prisma) - so
 // both generate and check clues against that same set-up.
@@ -45,7 +45,7 @@ export const MIN_HINT_WORDS = 4;
 const HINT_SOURCE_MATCH = 0.85;
 
 // Difficulty levels. The teacher picks one when the lesson is uploaded (the
-// chat assistant's Easy / Medium / Hard buttons). The level changes how the
+// editor's Easy / Medium / Hard pop-up). The level changes how the
 // question and the hint are worded and how long they may be; every level keeps
 // the same base rules (document only, one fact per question, the hint contains
 // the correct answer exactly as written, no decoy in the hint).
@@ -77,7 +77,7 @@ const DIFFICULTY_SETTINGS = {
     sourceMatch: HINT_SOURCE_MATCH,
     intro: false,
     copyRun: 0,
-    questionRule: `Question style: each question is ONE short sentence of at most 15 words, in plain everyday words, that asks for one fact only. Start simply, for example with "What", "Who", "Which", "Where", "When", "How many" or "What does". Do not join several ideas with "and", "which" or "that", do not write "which of the following", and do not copy long phrases from the document - use only the key term the answer depends on.`,
+    questionRule: `Question style: each question is ONE short sentence of at most 15 words, in plain everyday words, that asks for one fact only. Start simply, for example with "What", "Who", "Which", "Where", "When", "How many" or "What does" - or, for a Filipino document, "Ano", "Sino", "Alin", "Saan", "Kailan" or "Ilan". Do not join several ideas with "and", "which" or "that", do not write "which of the following", and do not copy long phrases from the document - use only the key term the answer depends on.`,
     hintRule: `Hint: every question also has a "hint", a short note that the player reads to find the answer. Write it as ONE plain statement of the fact (a normal sentence, or at most two short ones), the way a textbook states it. Example of the style only (never use its content): for the question "What is the largest planet in the Solar System?" the hint is "Jupiter is the largest planet in the Solar System." Use only facts and words from the document: if the document states the fact in a sentence, keep that sentence's wording; if the document is a list of questions and answers, turn each question and its answer into a statement like the example. Never copy the question into the hint, never write the hint as a question, never write it as the question followed by the answer, and never add facts, explanations or details of your own. The hint must contain the correct answer exactly as it is written in the answer field (for a Combo question, every correct answer). It must not contain any wrong option (decoy). It must not mention a question, a player, a clue or a hint. At most 30 words.`,
     decoyExtra: "",
   },
@@ -155,6 +155,7 @@ export const buildCluePrompt = (extractedText, slotTypes, difficulty = "easy") =
   return `You are writing quiz questions for a classroom activity. The document below is your ONLY source.
 
 Rules:
+- ${LANGUAGE_RULE}
 - Every question, answer and hint must come directly from what the document states. Do not use outside knowledge, and do not add facts, definitions, examples or explanations that the document does not contain. If the document does not say it, do not ask it.
 - Write plain, direct questions in the document's own terms. Do not add any story, setting, theme, character, riddle or role-play, and do not mention a game, a scene, a realm or a vault.
 - Cover different parts of the document. Do not ask about the same fact twice.
@@ -241,11 +242,58 @@ const isContentWord = (w) => /^\d+$/.test(w) || (w.length >= 4 && !FILLER_WORDS.
 const wordKey = (w) => (/^\d+$/.test(w) ? w : stem(w));
 const contentWordsOf = (text) => wordsOf(text).filter(isContentWord).map(wordKey);
 
-// What the checks compare against: the set of content words in the document.
+// ---------- Language (Filipino / English) ----------
+// Every question must be written in the document's language. The fields copied from the document
+// (answers, hints, notes) follow it on their own, but the question is worded freely and models
+// drift into English, so a Filipino document's questions are checked in code too.
+// Short, very common function words of each language. Words both languages use ("at", "may")
+// are left out.
+const FILIPINO_MARKERS = new Set([
+  "ang", "ng", "mga", "sa", "ay", "na", "nang", "si", "ni", "kay", "sina", "nina", "ito", "iyan", "iyon", "dito", "doon",
+  "ano", "anong", "sino", "saan", "kailan", "ilan", "ilang", "alin", "paano", "bakit", "hindi", "mayroon", "wala",
+  "ba", "po", "rin", "din", "lamang", "lang", "isang", "kung", "upang", "para", "kanyang", "nito", "niya", "tinatawag",
+]);
+const ENGLISH_MARKERS = new Set([
+  "the", "is", "are", "was", "were", "what", "which", "who", "where", "when", "how", "why", "of", "and", "in", "on",
+  "to", "a", "an", "does", "do", "did", "this", "that", "for", "with", "from", "by", "its", "their", "called",
+]);
+
+const countMarkers = (text) => {
+  let fil = 0;
+  let en = 0;
+  for (const w of wordsOf(text)) {
+    if (FILIPINO_MARKERS.has(w)) fil += 1;
+    else if (ENGLISH_MARKERS.has(w)) en += 1;
+  }
+  return { fil, en };
+};
+
+// "fil" when the document is mainly Filipino, "en" when mainly English, null when it can't tell.
+const detectLanguage = (text) => {
+  const { fil, en } = countMarkers(text);
+  if (fil + en < 5) return null;
+  if (fil >= en * 1.5) return "fil";
+  if (en >= fil * 1.5) return "en";
+  return null;
+};
+
+// True when a sentence reads as English (for a Filipino document). Taglish - Filipino with
+// English terms, like "Ano ang evaporation?" - is fine.
+const readsAsEnglish = (text) => {
+  const { fil, en } = countMarkers(text);
+  return en >= 2 && en > fil * 2;
+};
+
+// The reminder added to the prompts and to every retry.
+const LANGUAGE_RULE =
+  'Language: write everything - every question, answer, wrong option, hint and note - in the SAME language as the document. If the document is in Filipino (Tagalog), the questions must be in Filipino too, never in English: start them with Filipino question words such as "Ano", "Sino", "Saan", "Kailan", "Ilan", "Alin" or "Paano" (for example "Ano ang tawag sa ...?"). English terms that the document itself uses may stay as they are. The examples in these rules are in English only to show the style; never take their language.';
+const LANGUAGE_RETRY_NOTE = "Keep every field in the same language as the document.";
+
+// What the checks compare against: the set of content words in the document, and its language.
 // Built once per response.
 const prepareSource = (sourceText) => {
   if (!sourceText) return null;
-  return { words: new Set(contentWordsOf(sourceText)) };
+  return { words: new Set(contentWordsOf(sourceText)), language: detectLanguage(sourceText) };
 };
 
 // Checks that the hint brings in no facts of its own: at least `threshold` (the
@@ -391,6 +439,11 @@ export const parseClueResponse = (rawText, slotTypes, sourceText, difficulty = "
       problems.push(`${label}: ${message}`);
       ok = false;
     };
+
+    // A Filipino document's question must be in Filipino too.
+    if (source?.language === "fil" && readsAsEnglish(question)) {
+      fail('the question is in English, but the document is in Filipino. Write the question in Filipino, starting with a word such as "Ano", "Sino", "Saan", "Kailan", "Ilan" or "Alin".');
+    }
 
     // Too long for the Dial - the retry restates the limit.
     if (type === "NORMAL" && dialLength(correct[0]) > MAX_IDENTIFICATION_CHARS) {
@@ -579,7 +632,7 @@ export const generateCluesForScene = async (lessonText, scene, logLabel, difficu
       const acceptedNote = acceptedList.length
         ? `\n\nThese questions were already accepted and are kept as they are (write them again in their place, and make the other questions about different facts):\n${acceptedList.join("\n")}`
         : "";
-      const correctivePrompt = `${prompt}\n\nYour previous response had these problems:\n${open.map((p) => `- ${p}`).join("\n")}${acceptedNote}\n\nRespond again with ONLY a valid JSON array (no markdown, no commentary) of exactly ${slotTypes.length} question objects, in the same order, that fixes every problem and follows all the rules above.`;
+      const correctivePrompt = `${prompt}\n\nYour previous response had these problems:\n${open.map((p) => `- ${p}`).join("\n")}${acceptedNote}\n\nRespond again with ONLY a valid JSON array (no markdown, no commentary) of exactly ${slotTypes.length} question objects, in the same order, that fixes every problem and follows all the rules above. ${LANGUAGE_RETRY_NOTE}`;
       const { text: retryText } = await generateText(correctivePrompt);
       lastRaw = retryText;
       result = parseClueResponse(retryText, slotTypes, lessonText, level);
@@ -649,6 +702,7 @@ export const buildNotePrompt = (extractedText, count, avoid, difficulty = "easy"
   return `You are writing short extra notes for a classroom activity. The document below is your ONLY source.
 
 Rules:
+- ${LANGUAGE_RULE}
 - Every note must be a fact that the document states. Do not use outside knowledge, and do not add facts, definitions, examples or explanations that the document does not contain.
 - A note gives additional learning: an interesting or useful fact from the document. It must have NO connection to the facts already used below: it must not repeat, rephrase or point to any of them, and it must not contain any answer or wrong option listed there. Choose a different fact, from a part of the document that those facts do not use.
 - Each note is a plain statement of a fact, never a question. ${shape}
@@ -719,6 +773,10 @@ export const parseNoteResponse = (rawText, count, sourceText, avoid, difficulty 
     }
     if (note.includes("?")) {
       problems.push(`${label}: a note is a statement of a fact, not a question.`);
+      continue;
+    }
+    if (source?.language === "fil" && readsAsEnglish(note)) {
+      problems.push(`${label}: it is in English, but the document is in Filipino. Write the note in Filipino, using the document's own words.`);
       continue;
     }
     const words = countWords(note);
@@ -797,7 +855,7 @@ export const generateStandaloneNotes = async (lessonText, count, avoid, logLabel
       const acceptedNote = acceptedList.length
         ? `\n\nThese notes were already accepted and are kept as they are (write them again in their place, and make the other notes about different facts):\n${acceptedList.join("\n")}`
         : "";
-      const correctivePrompt = `${prompt}\n\nYour previous response had these problems:\n${open.map((p) => `- ${p}`).join("\n")}${acceptedNote}\n\nRespond again with ONLY a valid JSON array (no markdown, no commentary) of exactly ${count} strings that fixes every problem and follows all the rules above.`;
+      const correctivePrompt = `${prompt}\n\nYour previous response had these problems:\n${open.map((p) => `- ${p}`).join("\n")}${acceptedNote}\n\nRespond again with ONLY a valid JSON array (no markdown, no commentary) of exactly ${count} strings that fixes every problem and follows all the rules above. ${LANGUAGE_RETRY_NOTE}`;
       const { text: retryText } = await generateText(correctivePrompt);
       lastRaw = retryText;
       result = parseNoteResponse(retryText, count, lessonText, avoid, level, kept);

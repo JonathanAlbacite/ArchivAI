@@ -22,6 +22,8 @@ import RunResults from "./pages/RunResults";
 import AppShell from "./components/layout/AppShell";
 import ThemeProvider from "./components/ThemeProvider";
 import MusicProvider from "./components/MusicProvider";
+import ClickEffects from "./components/ClickEffects";
+import HoverEffects from "./components/HoverEffects";
 import { ToastProvider } from "./components/ui";
 
 // Tells the server this user is here, every 30 seconds while a page is open and visible, so room
@@ -54,14 +56,16 @@ function App() {
     <ThemeProvider>
       <ToastProvider>
         <MusicProvider>
+        {/* Particle bursts on clicks, and tilt + glow on hover, site-wide (playful on the student side). */}
+        <ClickEffects />
+        <HoverEffects />
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/register" element={<Register />} />
 
-            {/* Teacher area (admins may enter it as "Teacher Mode"). The AI assistant is mounted by
-                the shell once for every teacher route, so its conversation survives navigation. */}
-            <Route element={<AppShell allow={["TEACHER", "ADMIN"]} accent="TEACHER" assistant />}>
+            {/* Teacher area (admins may enter it as "Teacher Mode"). */}
+            <Route element={<AppShell allow={["TEACHER", "ADMIN"]} accent="TEACHER" />}>
               <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
               <Route path="/teacher/room/:id" element={<RoomPage />} />
               <Route path="/teacher/room/:roomId/campaign/:campaignId" element={<TeacherCampaignPage />} />

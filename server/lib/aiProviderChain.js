@@ -175,8 +175,7 @@ const runChain = async (attempt, timeoutMs = REQUEST_TIMEOUT_MS) => {
 };
 
 // Plain single-turn text generation (no tools) — used for clue generation
-// (teacherChatTools.js's generate_clues_from_notes tool, and the standalone
-// /lesson-modules/:id/generate-clues route). Returns { text, provider }.
+// (the /lesson-modules/:id/generate-clues and generate-notes routes). Returns { text, provider }.
 //
 // A provider that answers with an empty reply counts as failed, so the chain
 // moves on to the next provider instead of returning nothing (an empty reply was
@@ -194,19 +193,3 @@ export const generateText = (prompt) =>
       }),
     GENERATION_TIMEOUT_MS
   );
-
-// One turn of the teacher chatbot's tool-calling loop (see routes/chat.js).
-// `messages` is the neutral message history ({role, content, functionCall?}),
-// `tools` is the shared functionDeclarations array from teacherChatTools.js,
-// `systemInstructionText` is plain text.
-//
-// Gemini's function-calling format and the OpenAI-compatible format shared
-// by Groq/OpenRouter differ, but that translation already lives once per
-// client (toGeminiContents/toGroqMessages+toGroqTools and their
-// near-identical counterpart in openrouterClient.js, extractFunctionCallPart,
-// etc.) — every client already normalizes its own SDK/HTTP response into the
-// same { text, functionCall } shape. This just adds which provider produced
-// it, so callers never need to know which one answered.
-// Returns { text, functionCall: {name, args, id?} | null, provider }.
-export const callAIWithFallback = ({ messages, tools, systemInstructionText }) =>
-  runChain((client) => client.generateTurn({ messages, functionDeclarations: tools, systemInstructionText }));

@@ -94,6 +94,9 @@ router.get("/:id", protect, async (req, res) => {
             // How many plays/saves exist - the teacher UI hides "Edit" for a
             // campaign that has any (see hasPlayHistory in routes/campaigns.js).
             _count: { select: { sessions: true, progress: true } },
+            // Whether the logged-in user has finished reading the attached file
+            // (a student's Play stays locked until then - see routes/campaigns.js).
+            reads: { where: { studentId: req.user.id }, select: { id: true } },
           },
         },
       },
@@ -113,7 +116,10 @@ router.get("/:id", protect, async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    res.json(room);
+    res.json({
+      ...room,
+      campaigns: room.campaigns.map(({ reads, ...c }) => ({ ...c, readByMe: reads.length > 0 })),
+    });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

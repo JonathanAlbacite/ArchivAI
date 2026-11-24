@@ -1,0 +1,270 @@
+/* ============================================================================
+   Small fun touches: click particles and springy buttons on every page, plus
+   a gentle lift and pop-in for cards on the student side.
+
+   Student-only rules are scoped to :root[data-role="STUDENT"] (AppShell
+   writes data-role onto <html>). All motion turns off under
+   prefers-reduced-motion.
+   ========================================================================== */
+
+/* ---------- Click particles (components/ClickEffects.jsx) ---------- */
+.click-fx {
+  position: fixed;
+  z-index: 3000;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.click-fx__ring {
+  position: absolute;
+  left: -14px;
+  top: -14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  animation: click-fx-ring 450ms var(--motion-ease) forwards;
+}
+
+.click-fx--kid .click-fx__ring {
+  left: -22px;
+  top: -22px;
+  width: 44px;
+  height: 44px;
+  border-width: 3px;
+  border-color: #ffb703;
+}
+
+.click-fx__p {
+  position: absolute;
+  left: calc(var(--size) / -2);
+  top: calc(var(--size) / -2);
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background: var(--c, var(--accent));
+  opacity: 0;
+  animation: click-fx-fly 600ms var(--motion-ease) forwards;
+}
+
+.click-fx--kid .click-fx__p {
+  animation-duration: 850ms;
+}
+
+.click-fx__p[data-shape="star"] {
+  border-radius: 0;
+  clip-path: polygon(50% 0, 62% 36%, 100% 38%, 70% 60%, 80% 100%, 50% 76%, 20% 100%, 30% 60%, 0 38%, 38% 36%);
+  width: calc(var(--size) * 1.5);
+  height: calc(var(--size) * 1.5);
+}
+
+.click-fx__p[data-shape="square"] {
+  border-radius: 2px;
+  height: calc(var(--size) * 1.4);
+}
+
+.click-fx__p[data-shape="heart"] {
+  border-radius: 0;
+  clip-path: path("M5 9 C5 9 0 5.6 0 2.8 C0 1.2 1.2 0 2.6 0 C3.6 0 4.5 0.6 5 1.4 C5.5 0.6 6.4 0 7.4 0 C8.8 0 10 1.2 10 2.8 C10 5.6 5 9 5 9 Z");
+  width: 10px;
+  height: 10px;
+}
+
+@keyframes click-fx-ring {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+@keyframes click-fx-fly {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0) scale(0.4);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(1);
+  }
+}
+
+/* ---------- Buttons (everyone): tilt towards the mouse, glow, bounce on hover, squish on press ----------
+   components/HoverEffects.jsx sets --tilt-x/--tilt-y (lean) and --glow-x/--glow-y (light spot)
+   while the mouse is over a button, and data-tilt="on". */
+.btn {
+  --btn-glow: color-mix(in srgb, var(--accent) 45%, transparent);
+  --btn-glare: rgba(255, 255, 255, 0.4);
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    box-shadow 220ms var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    transform 280ms var(--motion-bounce);
+}
+
+.btn--primary {
+  --btn-glow: color-mix(in srgb, var(--color-primary) 60%, transparent);
+}
+
+.btn--accent {
+  --btn-glow: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.btn--danger {
+  --btn-glow: color-mix(in srgb, var(--color-danger) 55%, transparent);
+}
+
+/* Light buttons get a coloured light spot instead of a white one (white wouldn't show). */
+.btn--secondary,
+.btn--soft,
+.btn--ghost,
+.btn--danger-ghost {
+  --btn-glare: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* The soft light spot that follows the mouse - a background layer over the button's own colour,
+   so buttons need no extra positioning (some, like the game's fullscreen button, are placed absolutely). */
+.btn[data-tilt="on"]:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-image: radial-gradient(circle at var(--glow-x, 50%) var(--glow-y, 50%), var(--btn-glare), transparent 65%);
+}
+
+.btn:hover:not(:disabled):not([aria-disabled="true"]) {
+  transform: perspective(500px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-2px) scale(1.04);
+  box-shadow:
+    0 3px 0 var(--btn-depth),
+    0 8px 22px -6px var(--btn-glow),
+    0 0 14px -2px var(--btn-glow);
+}
+
+/* Ghost buttons have no 3D edge, so just the glow. */
+.btn--ghost:hover:not(:disabled),
+.btn--danger-ghost:hover:not(:disabled) {
+  box-shadow: 0 6px 18px -8px var(--btn-glow);
+}
+
+.btn:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: perspective(500px) translateY(2px) scale(0.97);
+  box-shadow: 0 1px 0 var(--btn-depth), 0 0 10px -2px var(--btn-glow);
+  transition-duration: var(--motion-fast), 90ms, var(--motion-fast), 90ms;
+}
+
+/* Sidebar links nudge sideways on hover. */
+.nav-link {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease),
+    transform 280ms var(--motion-bounce);
+}
+
+.nav-link:hover {
+  transform: translateX(3px);
+}
+
+/* ---------- Student side: cards tilt towards the mouse, lift and glow ---------- */
+:root[data-role="STUDENT"] .card--hoverable,
+:root[data-role="STUDENT"] .quest-card {
+  --card-glow: var(--scene, var(--accent));
+  transition:
+    transform 360ms var(--motion-bounce),
+    box-shadow 260ms var(--motion-ease),
+    border-color var(--motion-normal) var(--motion-ease);
+}
+
+:root[data-role="STUDENT"] .card--hoverable:hover,
+:root[data-role="STUDENT"] .quest-card:hover {
+  transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-6px);
+  border-color: color-mix(in srgb, var(--card-glow) 55%, var(--color-border));
+  box-shadow:
+    var(--shadow-lg),
+    0 14px 34px -10px color-mix(in srgb, var(--card-glow) 55%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--card-glow) 16%, transparent);
+}
+
+/* A soft light spot on the card where the mouse is. */
+:root[data-role="STUDENT"] .card--hoverable::after,
+:root[data-role="STUDENT"] .quest-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background: radial-gradient(circle at var(--glow-x, 50%) var(--glow-y, 50%), rgba(255, 255, 255, 0.22), transparent 55%);
+  opacity: 0;
+  transition: opacity 250ms var(--motion-ease);
+  pointer-events: none;
+}
+
+:root[data-role="STUDENT"][data-theme="dark"] .card--hoverable::after,
+:root[data-role="STUDENT"][data-theme="dark"] .quest-card::after {
+  background: radial-gradient(circle at var(--glow-x, 50%) var(--glow-y, 50%), color-mix(in srgb, var(--card-glow) 22%, transparent), transparent 55%);
+}
+
+:root[data-role="STUDENT"] .card--hoverable[data-tilt="on"]::after,
+:root[data-role="STUDENT"] .quest-card[data-tilt="on"]::after {
+  opacity: 1;
+}
+
+:root[data-role="STUDENT"] .grid-cards > *,
+:root[data-role="STUDENT"] .quest-path > li {
+  /* "backwards", not "both": a finished animation must not keep holding transform, or hover couldn't tilt the card. */
+  animation: fun-pop-in 480ms var(--motion-bounce) backwards;
+}
+
+:root[data-role="STUDENT"] .grid-cards > :nth-child(2),
+:root[data-role="STUDENT"] .quest-path > li:nth-child(2) {
+  animation-delay: 70ms;
+}
+
+:root[data-role="STUDENT"] .grid-cards > :nth-child(n + 3),
+:root[data-role="STUDENT"] .quest-path > li:nth-child(n + 3) {
+  animation-delay: 140ms;
+}
+
+@keyframes fun-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The lesson reader's "Great job!" screen sits over confetti. */
+.kid-reader__done {
+  position: relative;
+}
+
+/* ---------- Reduced motion: no movement ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .click-fx {
+    display: none;
+  }
+
+  :root[data-role="STUDENT"] .grid-cards > *,
+  :root[data-role="STUDENT"] .quest-path > li {
+    animation: none;
+  }
+
+  :root[data-role="STUDENT"] .card--hoverable:hover,
+  :root[data-role="STUDENT"] .quest-card:hover,
+  .btn:hover:not(:disabled),
+  .btn:active:not(:disabled),
+  .nav-link:hover {
+    transform: none;
+  }
+
+  :root[data-role="STUDENT"] .quest-card::after,
+  :root[data-role="STUDENT"] .card--hoverable::after {
+    transition: none;
+  }
+}

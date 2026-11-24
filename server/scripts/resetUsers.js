@@ -39,6 +39,7 @@ const TABLES = [
   ["Play attempts", () => prisma.sessionAttempt],
   ["Play sessions", () => prisma.campaignSession],
   ["Checkpoint progress", () => prisma.campaignProgress],
+  ["Lesson file reads", () => prisma.campaignRead],
   ["Room members", () => prisma.roomStudent],
   ["Additional notes", () => prisma.standaloneNote],
   ["Clue answers", () => prisma.clueAnswer],
@@ -111,6 +112,7 @@ async function main() {
       await tx.sessionAttempt.deleteMany();
       await tx.campaignSession.deleteMany();
       await tx.campaignProgress.deleteMany();
+      await tx.campaignRead.deleteMany();
       await tx.roomStudent.deleteMany();
       await tx.standaloneNote.deleteMany();
       await tx.clueAnswer.deleteMany();

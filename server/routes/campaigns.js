@@ -7,6 +7,7 @@ import prisma from "../lib/prisma.js";
 import { protect, teacherOnly } from "../middleware/auth.js";
 import { hasPlayHistory } from "../lib/clueTemplates.js";
 import { computeScore } from "../lib/scoring.js";
+import { extractTextFromFile } from "../lib/documentText.js";
 
 const router = express.Router();
 
@@ -16,6 +17,40 @@ const findCampaignWithRoom = (id) =>
     where: { id },
     include: { room: { select: { teacherId: true } } },
   });
+
+// Who may open a campaign's attached file: the owner and any admin always can;
+// anyone else only once the campaign is published AND they're enrolled in its
+// room - the file is a class handout, not public.
+const canOpenAttachment = async (campaign, user) => {
+  if (campaign.room.teacherId === user.id || user.role === "ADMIN") return true;
+  if (!campaign.isPublished) return false;
+  return !!(await prisma.roomStudent.findFirst({ where: { roomId: campaign.roomId, studentId: user.id } }));
+};
+
+// Students must read a campaign's attached file (in the kid-friendly reader on
+// the website) before they can play it. Campaigns with no attachment, and
+// teachers/admins, are never held back.
+const mustReadFirst = async (campaign, user) => {
+  if (user.role !== "STUDENT" || !campaign.attachmentPath) return false;
+  const read = await prisma.campaignRead.findUnique({
+    where: { campaignId_studentId: { campaignId: campaign.id, studentId: user.id } },
+  });
+  return !read;
+};
+
+// Which of these campaigns the user has finished reading (a Set of campaign ids).
+const readCampaignIds = async (campaignIds, userId) => {
+  if (campaignIds.length === 0) return new Set();
+  const rows = await prisma.campaignRead.findMany({
+    where: { studentId: userId, campaignId: { in: campaignIds } },
+    select: { campaignId: true },
+  });
+  return new Set(rows.map((r) => r.campaignId));
+};
+
+// Attachment types the reader can turn into plain text, and ones it shows as a picture.
+const READABLE_TEXT_EXTENSIONS = [".pdf", ".docx", ".doc", ".txt"];
+const READABLE_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg"];
 
 // A campaign's one attached resource file (e.g. a handout) — a broader set
 // than the lesson-notes upload in lessonModules.js (documentText.js's
@@ -385,6 +420,8 @@ router.post("/campaigns/:id/attachment", protect, teacherOnly, (req, res) => {
           attachmentMimeType: req.file.mimetype,
         },
       });
+      // A new file means students have to read it before playing again.
+      await prisma.campaignRead.deleteMany({ where: { campaignId } });
 
       res.status(201).json({
         attachmentFilename: updated.attachmentFilename,
@@ -432,15 +469,7 @@ router.get("/campaigns/:id/attachment", protect, async (req, res) => {
     const campaign = await findCampaignWithRoom(campaignId);
     if (!campaign) return res.status(404).json({ message: "Campaign not found" });
 
-    const isOwner = campaign.room.teacherId === req.user.id;
-    if (!isOwner && req.user.role !== "ADMIN") {
-      const enrolled =
-        campaign.isPublished &&
-        (await prisma.roomStudent.findFirst({
-          where: { roomId: campaign.roomId, studentId: req.user.id },
-        }));
-      if (!enrolled) return res.status(404).json({ message: "Campaign not found" });
-    }
+    if (!(await canOpenAttachment(campaign, req.user))) return res.status(404).json({ message: "Campaign not found" });
     if (!campaign.attachmentPath)
       return res.status(404).json({ message: "This campaign has no attachment" });
 
@@ -451,6 +480,70 @@ router.get("/campaigns/:id/attachment", protect, async (req, res) => {
     });
   } catch (err) {
     if (!res.headersSent) res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Anyone who can open the attachment: the attached file prepared for the
+// kid-friendly reader. Documents (.pdf/.docx/.doc/.txt) come back as their
+// plain text; pictures and other files only say which kind they are, and the
+// website shows them from GET /campaigns/:id/attachment instead.
+// Response: { filename, kind: "text" | "image" | "file", text?, readAt }
+router.get("/campaigns/:id/reading", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign || !(await canOpenAttachment(campaign, req.user)))
+      return res.status(404).json({ message: "Campaign not found" });
+    if (!campaign.attachmentPath)
+      return res.status(404).json({ message: "This campaign has no attachment" });
+
+    const read = await prisma.campaignRead.findUnique({
+      where: { campaignId_studentId: { campaignId, studentId: req.user.id } },
+    });
+    const base = { filename: campaign.attachmentFilename, readAt: read?.readAt || null };
+    const ext = path.extname(campaign.attachmentFilename || campaign.attachmentPath).toLowerCase();
+
+    if (READABLE_IMAGE_EXTENSIONS.includes(ext)) return res.json({ ...base, kind: "image" });
+
+    if (READABLE_TEXT_EXTENSIONS.includes(ext)) {
+      try {
+        const text = String(
+          (await extractTextFromFile({ originalname: campaign.attachmentFilename, path: campaign.attachmentPath })) || ""
+        ).trim();
+        if (text) return res.json({ ...base, kind: "text", text });
+      } catch (err) {
+        // An old .doc, a scanned PDF, etc. - fall through and let the student open the file itself.
+        console.warn(`[reading] could not extract text from campaign ${campaignId}'s attachment:`, err.message);
+      }
+    }
+
+    res.json({ ...base, kind: "file" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Student (or anyone who can open it): mark the attached file as read, which
+// unlocks Play for this campaign. Safe to call again - it keeps the first time.
+router.post("/campaigns/:id/reading/done", protect, async (req, res) => {
+  const campaignId = parseInt(req.params.id);
+
+  try {
+    const campaign = await findCampaignWithRoom(campaignId);
+    if (!campaign || !(await canOpenAttachment(campaign, req.user)))
+      return res.status(404).json({ message: "Campaign not found" });
+    if (!campaign.attachmentPath)
+      return res.status(400).json({ message: "This campaign has no attachment" });
+
+    const read = await prisma.campaignRead.upsert({
+      where: { campaignId_studentId: { campaignId, studentId: req.user.id } },
+      create: { campaignId, studentId: req.user.id },
+      update: {},
+    });
+    res.json({ readAt: read.readAt });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
@@ -597,8 +690,17 @@ router.get("/rooms/:roomId/campaigns", protect, async (req, res) => {
     const campaigns = await prisma.campaign.findMany({
       where: { roomId, isPublished: true },
     });
+    const readIds = await readCampaignIds(campaigns.map((c) => c.id), req.user.id);
 
-    res.json(campaigns);
+    // readByMe: the logged-in user finished the attached file in the reader (Play
+    // stays locked for a student until then, when the campaign has an attachment).
+    res.json(
+      campaigns.map(({ attachmentPath, ...c }) => ({
+        ...c,
+        hasAttachment: !!attachmentPath,
+        readByMe: readIds.has(c.id),
+      }))
+    );
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
@@ -636,8 +738,10 @@ router.get("/campaigns/:id", protect, async (req, res) => {
     // The additional notes are for the owning teacher to edit; a student's copy has none.
     const standaloneNotes = isOwner ? await getStandaloneNoteTexts(campaignId) : [];
 
+    const readByMe = (await readCampaignIds([campaignId], req.user.id)).has(campaignId);
+
     const { room, attachmentPath, ...campaignData } = campaign;
-    res.json({ ...campaignData, clues, standaloneNotes });
+    res.json({ ...campaignData, hasAttachment: !!attachmentPath, readByMe, clues, standaloneNotes });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
@@ -656,6 +760,8 @@ router.get("/campaigns/:id/load", protect, async (req, res) => {
     const isOwner = campaign.room.teacherId === req.user.id;
     if (!campaign.isPublished && !isOwner)
       return res.status(404).json({ message: "Campaign not found" });
+    if (await mustReadFirst(campaign, req.user))
+      return res.status(403).json({ code: "READ_FIRST", message: "Read the lesson file before playing this campaign." });
 
     const clues = await prisma.clue.findMany({
       where: { campaignId },
