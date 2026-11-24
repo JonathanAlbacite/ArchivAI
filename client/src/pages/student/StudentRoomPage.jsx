@@ -1,17 +1,18 @@
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useState, useEffect, useRef } from 'react'
-import { Map as MapIcon } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { LogOut, Map as MapIcon } from 'lucide-react'
 import GameStage from '../../components/game/GameStage'
 import CampaignQuestCard from '../../components/student/CampaignQuestCard'
 import RoomMembers from '../../components/RoomMembers'
-import LessonReader from '../../components/student/LessonReader'
+import AttachmentPreviewModal from '../../components/AttachmentPreviewModal'
 import { BooksArt } from '../../components/Illustrations'
-import { Alert, Breadcrumbs, Button, EmptyState, PageHeader, Skeleton, SkeletonCards } from '../../components/ui'
+import { Alert, Breadcrumbs, Button, ConfirmDialog, EmptyState, PageHeader, Skeleton, SkeletonCards } from '../../components/ui'
 import useRoomMembers from '../../lib/useRoomMembers'
 import { api, errorMessage } from '../../lib/api'
 import { fetchCampaignStatus } from '../../lib/studentProgress'
 import { clearSession } from '../../lib/session'
 import { useToast } from '../../lib/toast'
+import { useReadingProgress } from '../../lib/readingProgress'
 
 function StudentRoomPage() {
     const { id } = useParams()
@@ -29,10 +30,18 @@ function StudentRoomPage() {
     // Back returns there instead of skipping to the room; otherwise the room.
     const [exitTo, setExitTo] = useState(null)
     const [playError, setPlayError] = useState(null)
-    // The campaign whose lesson is open in the kid-friendly reader, and where to go after it
-    // (the campaign page's origin, when Play was asked for from there).
-    const [readerCampaign, setReaderCampaign] = useState(null)
-    const [readerOrigin, setReaderOrigin] = useState(null)
+    // The campaign whose lesson file is open in the viewer.
+    const [previewCampaign, setPreviewCampaign] = useState(null)
+    // Leaving the room: the confirm dialog is open, the request is running, or it failed.
+    const [confirmLeave, setConfirmLeave] = useState(false)
+    const [leaving, setLeaving] = useState(false)
+    const [leaveError, setLeaveError] = useState("")
+
+    // Scrolling to the end of a lesson file unlocks Play on its card (the server saves the read).
+    const handleLessonRead = useCallback((campaign) => {
+        setRoom((r) => r && { ...r, campaigns: r.campaigns.map((c) => (c.id === campaign.id ? { ...c, readByMe: true } : c)) })
+    }, [])
+    const reading = useReadingProgress(handleLessonRead)
 
     useEffect(() => {
         let cancelled = false
@@ -69,10 +78,9 @@ function StudentRoomPage() {
     // a game that would just fail to find a campaign to load.
     const handlePlay = async (campaign, origin = null) => {
         setPlayError(null)
-        // A lesson file must be read first - open the reader instead of the game.
+        // A lesson file must be scrolled to the end first - open it instead of the game.
         if (campaign.attachmentFilename && !campaign.readByMe) {
-            setReaderOrigin(origin)
-            setReaderCampaign(campaign)
+            setPreviewCampaign(campaign)
             return
         }
         setStartingId(campaign.id)
@@ -123,14 +131,25 @@ function StudentRoomPage() {
         navigate(`/results/${campaign.id}`, { state: { roomId: id, replay: true } })
     }
 
-    // The reader saved the read: unlock Play on this campaign's card.
-    const handleLessonRead = (campaign) => {
-        setRoom((r) => r && { ...r, campaigns: r.campaigns.map((c) => (c.id === campaign.id ? { ...c, readByMe: true } : c)) })
+    const handleLeave = async () => {
+        setLeaving(true)
+        setLeaveError("")
+        try {
+            const { ok, data } = await api(`/rooms/${id}/leave`, { method: "DELETE" })
+            if (!ok) throw new Error(errorMessage(data, "Couldn't leave the room"))
+            toast.success(`You left ${room?.name || "the room"}.`)
+            navigate("/student/dashboard")
+        } catch (err) {
+            setLeaveError(err.message === "Failed to fetch" ? "Couldn't reach the server. Check your connection and try again." : err.message)
+            setLeaving(false)
+        }
     }
 
-    const openReader = (campaign) => {
-        setReaderOrigin(null)
-        setReaderCampaign(campaign)
+    // Closing the lesson re-checks the room, so a lesson that was just finished shows Play unlocked
+    // even if the unlock happened while the viewer was open.
+    const closePreview = () => {
+        setPreviewCampaign(null)
+        setReloadKey((k) => k + 1)
     }
 
     const handleGameError = () => {
@@ -172,6 +191,11 @@ function StudentRoomPage() {
                 eyebrow="Room"
                 title={room ? room.name : loadError ? "Room unavailable" : <Skeleton width={260} height={34} />}
                 description={room?.description || (members?.owner?.name ? `Hosted by ${members.owner.name}` : undefined)}
+                actions={room && (
+                    <Button variant="danger-ghost" icon={LogOut} onClick={() => setConfirmLeave(true)}>
+                        Leave room
+                    </Button>
+                )}
             />
 
             {loadError && (
@@ -216,8 +240,9 @@ function StudentRoomPage() {
                                             status={statuses[campaign.id]}
                                             starting={startingId === campaign.id}
                                             disabled={startingId !== null && startingId !== campaign.id}
+                                            readLevel={reading.levelOf(campaign)}
                                             onPlay={handlePlay}
-                                            onRead={openReader}
+                                            onPreviewAttachment={setPreviewCampaign}
                                             onViewRun={handleViewRun}
                                             onOpen={(c) => navigate(`/student/room/${id}/campaign/${c.id}`)}
                                         />
@@ -233,13 +258,31 @@ function StudentRoomPage() {
                 </div>
             )}
 
-            {readerCampaign && (
-                <LessonReader
-                    campaign={readerCampaign}
-                    onClose={() => setReaderCampaign(null)}
-                    onFinished={handleLessonRead}
-                    onPlay={(c) => handlePlay({ ...c, readByMe: true }, readerOrigin)}
+            {previewCampaign && (
+                <AttachmentPreviewModal
+                    campaign={previewCampaign}
+                    onClose={closePreview}
+                    unlocked={!!room?.campaigns?.find((c) => c.id === previewCampaign.id)?.readByMe}
+                    onPlay={() => {
+                        const campaign = previewCampaign
+                        closePreview()
+                        handlePlay({ ...campaign, readByMe: true })
+                    }}
+                    onProgress={previewCampaign.readByMe ? undefined : (fraction) => reading.report(previewCampaign, fraction)}
                 />
+            )}
+
+            {confirmLeave && (
+                <ConfirmDialog
+                    title={`Leave ${room?.name || "this room"}?`}
+                    confirmLabel="Leave room"
+                    loading={leaving}
+                    error={leaveError}
+                    onCancel={() => { setConfirmLeave(false); setLeaveError("") }}
+                    onConfirm={handleLeave}
+                >
+                    <p>You won't see this room's campaigns anymore. Your past results are kept, and you can join again with the room code.</p>
+                </ConfirmDialog>
             )}
         </div>
     )

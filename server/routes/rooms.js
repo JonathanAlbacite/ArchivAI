@@ -258,9 +258,15 @@ router.post("/:id/students", protect, teacherOnly, async (req, res) => {
   }
 });
 
-// Teacher: Remove student
+// Teacher: Remove a student from one of their own rooms. Their past results are kept, and they
+// can rejoin with the room code.
 router.delete("/:id/students/:studentId", protect, teacherOnly, async (req, res) => {
   try {
+    const room = await prisma.room.findUnique({ where: { id: parseInt(req.params.id) } });
+    if (!room) return res.status(404).json({ message: "Room not found" });
+    if (room.teacherId !== req.user.id)
+      return res.status(403).json({ message: "Access denied" });
+
     await prisma.roomStudent.deleteMany({
       where: {
         roomId: parseInt(req.params.id),
@@ -269,6 +275,21 @@ router.delete("/:id/students/:studentId", protect, teacherOnly, async (req, res)
     });
 
     res.json({ message: "Student removed" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// Student: Leave a room they joined. Their past results are kept, and they can rejoin with the
+// room code.
+router.delete("/:id/leave", protect, studentOnly, async (req, res) => {
+  try {
+    const { count } = await prisma.roomStudent.deleteMany({
+      where: { roomId: parseInt(req.params.id), studentId: req.user.id },
+    });
+    if (count === 0) return res.status(404).json({ message: "You are not in this room" });
+
+    res.json({ message: "Left the room" });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }

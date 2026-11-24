@@ -1,9 +1,10 @@
-import { BookOpen, ChevronRight, Lock, Play, RotateCcw, StepForward } from "lucide-react";
+import { BookOpen, ChevronRight, Play, RotateCcw, StepForward } from "lucide-react";
 import { SceneArt } from "../Illustrations";
 import { SceneBadge } from "../SceneIcon";
 import { Button, RankMedal, Skeleton, StatusChip } from "../ui";
 import { sceneStyle, useEnvironments } from "../../scenes";
 import { formatDuration } from "../../lib/format";
+import WaterPlayButton from "./WaterPlayButton";
 
 const ACTION = {
   notStarted: { label: "Play", icon: Play },
@@ -18,9 +19,10 @@ const ACTION = {
 // (.quest-card__open), and onOpen(campaign) opens the campaign's own page (StudentCampaignPage). The buttons
 // inside the card (Latest run, View Lesson, Play) sit above it and do their own thing.
 // The Latest run box is a button: onViewRun(campaign) opens that run's results page.
-// A campaign with an attached lesson file stays locked until the student has read it in the
-// kid-friendly reader (onRead opens it); after that "Read again" stays available.
-function CampaignQuestCard({ campaign, number, status, starting, disabled, onPlay, onRead, onViewRun, onOpen }) {
+// A campaign with an attached lesson file stays locked until the student has scrolled to the end of
+// it (onPreviewAttachment opens the file); until then Play fills with water as they scroll
+// (readLevel, 0..1 - see lib/readingProgress.js).
+function CampaignQuestCard({ campaign, number, status, starting, disabled, readLevel = 0, onPlay, onPreviewAttachment, onViewRun, onOpen }) {
   useEnvironments();
   const state = status?.state || "notStarted";
   const action = ACTION[state];
@@ -70,35 +72,25 @@ function CampaignQuestCard({ campaign, number, status, starting, disabled, onPla
         )}
 
         {campaign.attachmentFilename && (
-          <Button
-            variant={needsReading ? "accent" : "secondary"}
-            block
-            icon={BookOpen}
-            className={needsReading ? "quest-card__lesson quest-card__lesson--todo" : "quest-card__lesson"}
-            onClick={() => onRead(campaign)}
-          >
-            {needsReading ? "Read the lesson first" : "Read again"}
+          <Button variant="secondary" block icon={BookOpen} className="quest-card__lesson" onClick={() => onPreviewAttachment(campaign)}>
+            View Lesson
             <span className="sr-only">: {campaign.attachmentFilename}</span>
           </Button>
         )}
 
         <div className="card__footer">
-          <Button
-            variant={needsReading ? "secondary" : "accent"}
-            block
-            icon={needsReading ? Lock : action.icon}
-            loading={starting}
-            disabled={disabled || needsReading}
-            onClick={() => onPlay(campaign)}
-            aria-describedby={needsReading ? `quest-${campaign.id}-locked` : undefined}
-          >
-            {starting ? "Starting..." : action.label}
-            <span className="sr-only">: {campaign.title}</span>
-          </Button>
-          {needsReading && (
-            <p id={`quest-${campaign.id}-locked`} className="quest-card__locked text-xs text-muted">
-              Read the lesson to unlock Play.
-            </p>
+          {needsReading ? (
+            <>
+              <WaterPlayButton level={readLevel} label={action.label} block describedBy={`quest-${campaign.id}-locked`} />
+              <p id={`quest-${campaign.id}-locked`} className="quest-card__locked text-xs text-muted">
+                Open the lesson and scroll to the end to unlock Play.
+              </p>
+            </>
+          ) : (
+            <Button variant="accent" block icon={action.icon} loading={starting} disabled={disabled} onClick={() => onPlay(campaign)}>
+              {starting ? "Starting..." : action.label}
+              <span className="sr-only">: {campaign.title}</span>
+            </Button>
           )}
         </div>
       </div>

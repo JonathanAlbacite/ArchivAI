@@ -2691,254 +2691,248 @@
   text-align: center;
 }
 
-/* ============ Student: kid-friendly lesson reader ============ */
-.kid-reader .modal__title {
-  font-size: var(--text-xl);
-}
-
-.kid-reader__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.kid-reader__toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.kid-reader__progress {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-  flex: 1 1 240px;
-}
-
-.kid-reader__page-count {
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--color-student);
-}
-
-.kid-reader__bar {
+/* Locked Play button that fills with water as the student scrolls through the lesson file
+   (components/student/WaterPlayButton.jsx). --water is the level, 0% to 100%. */
+.btn.btn--water {
   position: relative;
-  flex: 1 1 120px;
-  height: 10px;
-  border-radius: var(--radius-pill);
-  background: var(--color-student-soft);
   overflow: hidden;
+  isolation: isolate;
+  cursor: not-allowed;
 }
 
-.kid-reader__bar > span {
+.btn.btn--water:disabled {
+  opacity: 1;
+  box-shadow: 0 3px 0 var(--btn-depth);
+}
+
+.btn--water__fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: inherit;
-  background: var(--color-student);
-  transition: width 300ms ease;
+  inset: auto 0 0 0;
+  z-index: -1;
+  height: var(--water, 0%);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-info) 45%, transparent),
+    color-mix(in srgb, var(--color-info) 65%, transparent)
+  );
+  transition: height 600ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.kid-reader__stars {
+/* The wavy surface: two drifting waves on top of the water. */
+.btn--water__fill::before,
+.btn--water__fill::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  width: calc(100% + var(--wave));
+  height: 8px;
+  background-repeat: repeat-x;
+  background-size: var(--wave) 100%;
+  animation: water-drift 2.4s linear infinite;
+}
+
+.btn--water__fill::before {
+  background-image: radial-gradient(ellipse 50% 100% at 50% 100%, color-mix(in srgb, var(--color-info) 45%, transparent) 98%, transparent 100%);
+  --wave: 36px;
+}
+
+.btn--water__fill::after {
+  height: 6px;
+  opacity: 0.6;
+  background-image: radial-gradient(ellipse 50% 100% at 50% 100%, color-mix(in srgb, var(--color-info) 35%, transparent) 98%, transparent 100%);
+  --wave: 52px;
+  animation-duration: 3.6s;
+  animation-direction: reverse;
+}
+
+/* No wave on an empty or a full button. */
+.btn--water[style*="--water: 0%"] .btn--water__fill::before,
+.btn--water[style*="--water: 0%"] .btn--water__fill::after,
+.btn--water[style*="--water: 100%"] .btn--water__fill::before,
+.btn--water[style*="--water: 100%"] .btn--water__fill::after {
+  display: none;
+}
+
+.btn--water__percent {
+  font-size: 0.8em;
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+@keyframes water-drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-1 * var(--wave))); }
+}
+
+/* The "scroll to the end" meter at the top of the lesson file viewer (AttachmentPreviewModal). */
+.read-meter {
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  font-size: 18px;
-  line-height: 1;
-  color: var(--color-border);
-}
-
-.kid-reader__stars [data-done] {
-  color: var(--color-yellow);
-}
-
-.kid-reader__page {
-  --kid-size: 1.35rem;
-  min-height: 260px;
-}
-
-.kid-reader__page--md { --kid-size: 1.15rem; }
-.kid-reader__page--lg { --kid-size: 1.35rem; }
-.kid-reader__page--xl { --kid-size: 1.65rem; }
-
-.kid-reader__sheet {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9em;
-  padding: var(--space-6);
-  border-radius: var(--radius-xl);
-  background: var(--color-surface-muted);
-  border: 2px solid var(--color-student-soft);
-  font-size: var(--kid-size);
-  line-height: 1.7;
-  letter-spacing: 0.01em;
-  animation: kid-page-in 260ms ease both;
-}
-
-@keyframes kid-page-in {
-  from {
-    opacity: 0;
-    transform: translateX(16px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.kid-reader__heading {
-  font-family: var(--font-display);
-  font-size: 1.25em;
-  line-height: 1.3;
-  color: var(--color-student);
-}
-
-.kid-reader__line {
-  max-width: 60ch;
-  padding: 0.1em 0.35em;
-  margin-left: -0.35em;
-  border-radius: var(--radius-sm);
-  transition: background-color 150ms ease;
-}
-
-.kid-reader__line--bullet {
-  display: flex;
-  gap: 0.5em;
-}
-
-.kid-reader__star {
-  color: var(--color-yellow);
+  align-items: center;
+  gap: 10px;
+  margin: 0 12px 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: #2d3a4a;
+  color: #e8eaed;
+  font-family: var(--font-body);
+  font-size: 14px;
   flex-shrink: 0;
 }
 
-/* The sentence being read aloud. */
-.kid-reader [data-speaking] {
-  background: var(--color-yellow-soft);
-  box-shadow: 0 0 0 2px var(--color-yellow-soft);
+.read-meter[data-done] {
+  background: #1f4d36;
 }
 
-.kid-reader__tip {
-  margin-top: var(--space-3);
-  font-weight: 600;
-  text-align: center;
-  color: var(--color-text-muted);
+.read-meter__label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.kid-reader__loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  min-height: 200px;
-  color: var(--color-text-muted);
+.read-meter__bar {
+  flex: 1 1 120px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
 }
 
-.kid-reader__picture {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
+.read-meter__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #7cc4ff;
+  transition: width 400ms ease;
 }
 
-.kid-reader__picture img {
-  max-width: 100%;
-  max-height: 60vh;
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.15);
+.read-meter[data-done] .read-meter__bar > span {
+  background: #6fdc9a;
 }
 
-.kid-reader__file,
-.kid-reader__done {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-8) var(--space-4);
-  text-align: center;
-  color: var(--color-student);
+.read-meter__percent {
+  min-width: 3ch;
+  text-align: right;
+  font-weight: 700;
 }
 
-.kid-reader__done {
-  animation: kid-page-in 300ms ease both;
-}
-
-.kid-reader__done-title {
-  font-family: var(--font-display);
-  font-size: var(--text-2xl);
-  color: var(--color-text);
-}
-
-.kid-reader__done-text {
-  max-width: 44ch;
-  font-size: var(--text-lg);
-  color: var(--color-text-muted);
-}
-
-.kid-reader__original {
-  text-align: center;
-  font-size: var(--text-sm);
-}
-
-.kid-reader__footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+/* A PDF drawn page by page with pdf.js, so the viewer can see the scroll position (PdfScroller.jsx). */
+.pdf-scroller {
   width: 100%;
+  height: 100%;
+  overflow: auto;
 }
 
-.kid-reader__finish {
-  background: var(--color-success);
-  border-color: var(--color-success);
-  color: var(--color-surface);
+.pdf-scroller__pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 32px;
 }
 
-.kid-reader__finish:hover:not(:disabled) {
-  filter: brightness(1.08);
+.pdf-scroller__page {
+  display: block;
+  background: white;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
 }
 
-@media (max-width: 600px) {
-  .kid-reader__sheet {
-    padding: var(--space-4);
-  }
+.pdf-scroller__note {
+  margin: 24px 0;
+  text-align: center;
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: #bdc1c6;
+}
+
+.pdf-scroller__note--error {
+  color: #f28b82;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .kid-reader__sheet,
-  .kid-reader__done {
+  .btn--water__fill,
+  .read-meter__bar > span {
+    transition: none;
+  }
+
+  .btn--water__fill::before,
+  .btn--water__fill::after {
     animation: none;
   }
 }
 
-/* The American / British voice toggle (a Segmented group). */
-.kid-reader__voice-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+/* "Great job!" pop-up with confetti when a student finishes the lesson file (AttachmentPreviewModal). */
+.read-celebration {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgba(10, 12, 18, 0.55);
+  animation: read-celebration-fade 200ms ease-out;
 }
 
-.kid-reader__voice-tag {
+.read-celebration__card {
+  position: relative;
+  width: min(380px, 100%);
+  padding: 28px 24px 22px;
+  border-radius: 20px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  animation: read-celebration-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.read-celebration__icon {
   display: inline-grid;
   place-items: center;
-  min-width: 22px;
-  height: 16px;
-  padding: 0 3px;
-  border-radius: 4px;
-  background: var(--color-student-soft);
-  color: var(--color-student);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  width: 68px;
+  height: 68px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-success) 18%, transparent);
+  color: var(--color-success);
 }
 
-.kid-reader .segmented button[aria-pressed="true"] .kid-reader__voice-tag {
-  background: var(--color-student);
-  color: var(--color-surface);
+.read-celebration__title {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
 }
 
-.kid-reader__voice-note {
-  margin-top: calc(var(--space-2) * -1);
+.read-celebration__text {
+  margin: 0 0 18px;
+  color: var(--color-text-muted);
+}
+
+.read-celebration__text strong {
+  color: var(--color-text);
+}
+
+.read-celebration__actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@keyframes read-celebration-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes read-celebration-pop {
+  from { opacity: 0; transform: scale(0.7); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .read-celebration,
+  .read-celebration__card {
+    animation: none;
+  }
 }

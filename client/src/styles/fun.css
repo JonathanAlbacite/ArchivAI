@@ -239,11 +239,6 @@
   }
 }
 
-/* The lesson reader's "Great job!" screen sits over confetti. */
-.kid-reader__done {
-  position: relative;
-}
-
 /* ---------- Reduced motion: no movement ---------- */
 @media (prefers-reduced-motion: reduce) {
   .click-fx {

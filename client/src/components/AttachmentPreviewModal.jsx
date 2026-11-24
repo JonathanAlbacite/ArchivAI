@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { X, Download, FileQuestion, Minus, Plus, Printer, ChevronDown } from "lucide-react";
+import { X, Download, FileQuestion, Minus, Plus, Printer, ChevronDown, Lock, LockOpen, Play, PartyPopper } from "lucide-react";
 import { fetchCampaignAttachment, saveFile } from "../lib/downloadCampaignAttachment";
+import PdfScroller from "./PdfScroller";
+import { Confetti } from "./ui";
 
 // Which file types the browser can show inline, keyed by extension (the
 // stored MIME type comes from the uploader's browser, so it's not trusted).
@@ -51,7 +53,11 @@ const getExtension = (filename = "") => (filename.split(".").pop() || "").toLowe
 // Viewer for a campaign's attached file, used by every role (students on
 // their room page, teachers/admins in the campaign book): a full-screen
 // document viewer with zoom, print and an explicit Download button.
-function AttachmentPreviewModal({ campaign, onClose }) {
+// Students pass onProgress(fraction 0..1): the viewer then reports how far down the file they have
+// scrolled (PDFs are drawn with pdf.js so the scroll position can be seen), shows it in a bar, and
+// counts a file it can't show as read once it's downloaded. When `unlocked` turns true (the server saved
+// the read) a confetti pop-up congratulates them; onPlay, if given, adds a "Play now" button to it.
+function AttachmentPreviewModal({ campaign, onClose, onProgress, unlocked = false, onPlay }) {
   const filename = campaign.attachmentFilename;
   const extension = getExtension(filename);
   const previewType = PREVIEW_TYPES[extension] || null;
@@ -63,6 +69,26 @@ function AttachmentPreviewModal({ campaign, onClose }) {
   const [zoom, setZoom] = useState(100);
   const frameRef = useRef(null);
   const closeRef = useRef(null);
+  const tracking = typeof onProgress === "function";
+  // The viewer only tracks a campaign that was locked when it opened, so `unlocked` turning true
+  // here always means the student just finished the file.
+  const [celebrationDismissed, setCelebrationDismissed] = useState(false);
+  const celebrate = tracking && unlocked && !celebrationDismissed;
+  const [progress, setProgress] = useState(0);
+
+  const report = (fraction) => {
+    if (!tracking) return;
+    setProgress((p) => Math.max(p, fraction));
+    onProgress(fraction);
+  };
+  // How far down a scroll box the bottom of the view is; a file that fits without scrolling is all read.
+  const measure = (el) => {
+    if (!el) return;
+    report(el.scrollHeight <= el.clientHeight + 4 ? 1 : Math.min(1, (el.scrollTop + el.clientHeight) / el.scrollHeight));
+  };
+  // Only once the sheet has loaded - before that the frame holds an empty page that would look fully read.
+  const sheetLoaded = useRef(false);
+  const measureSheet = () => sheetLoaded.current && measure(frameRef.current?.contentDocument?.scrollingElement);
 
   // Focus starts on Close so keyboard users can leave right away.
   useEffect(() => {
@@ -115,7 +141,21 @@ function AttachmentPreviewModal({ campaign, onClose }) {
     const doc = frameRef.current?.contentDocument;
     if (doc?.documentElement) doc.documentElement.style.zoom = `${zoom}%`;
   };
-  useEffect(applyZoom, [zoom, pageHtml]);
+  useEffect(() => {
+    applyZoom();
+    if (tracking) measureSheet();
+    // measureSheet only reads the frame; re-measure when the zoom changes the document's height
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom, pageHtml]);
+
+  // The docx/txt sheet scrolls inside its iframe, so listen there.
+  const handleSheetLoad = () => {
+    applyZoom();
+    if (!tracking) return;
+    sheetLoaded.current = true;
+    frameRef.current?.contentWindow?.addEventListener("scroll", measureSheet, { passive: true });
+    measureSheet();
+  };
 
   const stepZoom = (dir) => {
     const i = ZOOM_LEVELS.indexOf(zoom);
@@ -141,18 +181,20 @@ function AttachmentPreviewModal({ campaign, onClose }) {
     if (!url)
       return <p style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "#BDC1C6", alignSelf: "center" }}>Opening the file...</p>;
 
+    if (previewType?.kind === "pdf" && tracking)
+      return <PdfScroller url={url} title={filename} onScroll={measure} />;
     if (previewType?.kind === "pdf")
       return <iframe src={url} title={filename} style={{ width: "min(1100px, 100%)", height: "100%", border: "none", backgroundColor: "white" }} />;
     if (previewType?.kind === "image")
       return (
-        <div style={{ width: "100%", height: "100%", overflow: "auto", display: "flex" }}>
-          <img src={url} alt={filename} style={{ margin: "auto", maxWidth: zoom === 100 ? "100%" : "none", width: zoom === 100 ? "auto" : `${zoom}%`, boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }} />
+        <div onScroll={(e) => measure(e.currentTarget)} style={{ width: "100%", height: "100%", overflow: "auto", display: "flex" }}>
+          <img src={url} alt={filename} onLoad={(e) => measure(e.currentTarget.parentElement)} style={{ margin: "auto", maxWidth: zoom === 100 ? "100%" : "none", width: zoom === 100 ? "auto" : `${zoom}%`, boxShadow: "0 2px 12px rgba(0,0,0,0.5)" }} />
         </div>
       );
     // sandbox without allow-scripts — nothing in the document can run; the
     // same-origin flag only lets this page set zoom and call print().
     if (isSheet)
-      return <iframe ref={frameRef} srcDoc={pageHtml} onLoad={applyZoom} sandbox="allow-same-origin allow-modals" title={filename} style={{ width: "100%", height: "100%", border: "none" }} />;
+      return <iframe ref={frameRef} srcDoc={pageHtml} onLoad={handleSheetLoad} sandbox="allow-same-origin allow-modals" title={filename} style={{ width: "100%", height: "100%", border: "none" }} />;
 
     return (
       <div style={{ alignSelf: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "14px", textAlign: "center", padding: "32px 40px", backgroundColor: "#2D2E30", borderRadius: "16px" }}>
@@ -160,7 +202,7 @@ function AttachmentPreviewModal({ campaign, onClose }) {
         <p style={{ fontFamily: "var(--font-body)", fontSize: "14px", color: "#E8EAED", margin: 0 }}>
           No preview available for this file type.<br />Download it to open it on your device.
         </p>
-        <button onClick={() => saveFile(url, filename)} style={downloadButtonStyle(true)}>
+        <button onClick={() => { saveFile(url, filename); report(1); }} style={downloadButtonStyle(true)}>
           <Download size={16} /> Download
         </button>
       </div>
@@ -192,6 +234,20 @@ function AttachmentPreviewModal({ campaign, onClose }) {
         </button>
       </div>
 
+      {/* Student: how much of the file has been scrolled through - reaching the end unlocks Play */}
+      {tracking && (
+        <div className="read-meter" data-done={progress >= 0.98 || undefined} role="status">
+          {progress >= 0.98 ? <LockOpen size={16} aria-hidden="true" /> : <Lock size={16} aria-hidden="true" />}
+          <span className="read-meter__label">
+            {progress >= 0.98 ? "Play unlocked! Close the lesson to play." : "Scroll to the end of the lesson to unlock Play"}
+          </span>
+          <span className="read-meter__bar" aria-hidden="true">
+            <span style={{ width: `${Math.round(progress * 100)}%` }} />
+          </span>
+          <span className="read-meter__percent" aria-hidden="true">{Math.round(progress * 100)}%</span>
+        </div>
+      )}
+
       {/* Zoom / print bar */}
       {hasToolbar && url && (
         <div style={{ display: "flex", alignItems: "center", gap: "6px", margin: "0 12px", padding: "6px 16px", backgroundColor: "#3C4043", borderRadius: "999px", flexShrink: 0, alignSelf: "stretch" }}>
@@ -221,6 +277,35 @@ function AttachmentPreviewModal({ campaign, onClose }) {
       >
         {renderBody()}
       </div>
+
+      {celebrate && (
+        <div className="read-celebration">
+          <Confetti pieces={60} />
+          <div className="read-celebration__card" role="alertdialog" aria-modal="true" aria-labelledby="read-celebration-title" aria-describedby="read-celebration-text">
+            <span className="read-celebration__icon" aria-hidden="true">
+              <PartyPopper size={36} />
+            </span>
+            <h2 id="read-celebration-title" className="read-celebration__title">Great job!</h2>
+            <p id="read-celebration-text" className="read-celebration__text">
+              You read the whole lesson. <strong>Play is unlocked!</strong>
+            </p>
+            <div className="read-celebration__actions">
+              <button type="button" className="btn btn--secondary" onClick={() => setCelebrationDismissed(true)}>
+                Keep reading
+              </button>
+              {onPlay ? (
+                <button type="button" className="btn btn--accent" onClick={onPlay} autoFocus>
+                  <Play size={18} aria-hidden="true" /> Play now
+                </button>
+              ) : (
+                <button type="button" className="btn btn--accent" onClick={onClose} autoFocus>
+                  Close
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { BookOpen, ChevronRight, Clock, DoorOpen, Eye, Flag, GraduationCap, Lock, Medal, Paperclip, Play, Repeat, RotateCcw, StepForward } from "lucide-react";
+import { BookOpen, ChevronRight, Clock, DoorOpen, Eye, Flag, GraduationCap, Medal, Paperclip, Play, Repeat, RotateCcw, StepForward } from "lucide-react";
 import { SceneBadge } from "../../components/SceneIcon";
-import LessonReader from "../../components/student/LessonReader";
+import AttachmentPreviewModal from "../../components/AttachmentPreviewModal";
+import WaterPlayButton from "../../components/student/WaterPlayButton";
 import CheckpointTrack from "../../components/student/CheckpointTrack";
 import { Alert, Breadcrumbs, Button, Card, PageHeader, RankMedal, Skeleton, Stat, StatusChip } from "../../components/ui";
 import useRoomMembers from "../../lib/useRoomMembers";
 import { api, errorMessage } from "../../lib/api";
 import { fetchCampaignStatus } from "../../lib/studentProgress";
 import { clearSession } from "../../lib/session";
+import { useReadingProgress } from "../../lib/readingProgress";
 import { sceneStyle, useEnvironments } from "../../scenes";
 import { formatDate, formatDuration, plural } from "../../lib/format";
 
@@ -37,7 +39,23 @@ function StudentCampaignPage() {
   const [history, setHistory] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [historyFailed, setHistoryFailed] = useState(false);
+  // false, or "track" (still locked: the viewer measures scrolling) / "view" - fixed when it opens.
   const [showAttachment, setShowAttachment] = useState(false);
+
+  // Scrolling to the end of the lesson file unlocks Play (the server saves the read).
+  const handleLessonRead = useCallback(
+    () => setRoom((r) => r && { ...r, campaigns: r.campaigns.map((c) => (String(c.id) === String(campaignId) ? { ...c, readByMe: true } : c)) }),
+    [campaignId]
+  );
+  const reading = useReadingProgress(handleLessonRead);
+
+  // Closing the lesson re-checks the room quietly (no loading skeleton), so a lesson that was just
+  // finished shows Play unlocked without a refresh.
+  const closeLesson = async () => {
+    setShowAttachment(false);
+    const { ok, data } = await api(`/rooms/${id}`).catch(() => ({ ok: false }));
+    if (ok && data?.campaigns) setRoom(data);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -100,13 +118,10 @@ function StudentCampaignPage() {
   const total = attempts.find((a) => Number.isInteger(a.checkpointsTotal) && a.checkpointsTotal > 0)?.checkpointsTotal ?? status?.run?.checkpointsTotal ?? null;
   const percent = total ? Math.min(100, Math.round((reached / total) * 100)) : null;
 
-  // A lesson file has to be read (in the kid-friendly reader) before Play unlocks.
+  // A lesson file has to be scrolled to the end before Play unlocks.
   const needsReading = !!campaign?.attachmentFilename && !campaign.readByMe;
 
   const handlePlay = () => navigate(`/student/room/${id}`, { state: { playCampaignId: campaign.id, fromCampaign: true } });
-
-  const handleLessonRead = () =>
-    setRoom((r) => r && { ...r, campaigns: r.campaigns.map((c) => (String(c.id) === String(campaignId) ? { ...c, readByMe: true } : c)) });
 
   // The newest attempt opens the plain results address, an earlier one opens it with ?attempt=<run id>
   // (see RunResults.jsx). The score animation plays again.
@@ -130,19 +145,17 @@ function StudentCampaignPage() {
           campaign && (
             <div className="row" style={{ "--gap": "8px" }}>
               {campaign.attachmentFilename && (
-                <Button variant={needsReading ? "accent" : "secondary"} icon={BookOpen} onClick={() => setShowAttachment(true)}>
-                  {needsReading ? "Read the lesson first" : "Read again"}
+                <Button variant="secondary" icon={BookOpen} onClick={() => setShowAttachment(needsReading ? "track" : "view")}>
+                  View Lesson
                 </Button>
               )}
-              <Button
-                variant={needsReading ? "secondary" : "accent"}
-                icon={needsReading ? Lock : action.icon}
-                onClick={handlePlay}
-                disabled={needsReading}
-                title={needsReading ? "Read the lesson to unlock Play" : undefined}
-              >
-                {action.label}
-              </Button>
+              {needsReading ? (
+                <WaterPlayButton level={reading.levelOf(campaign)} label={action.label} />
+              ) : (
+                <Button variant="accent" icon={action.icon} onClick={handlePlay}>
+                  {action.label}
+                </Button>
+              )}
             </div>
           )
         }
@@ -270,7 +283,7 @@ function StudentCampaignPage() {
                       <div>
                         <dt className="text-xs text-muted">Attachment</dt>
                         <dd>
-                          <button type="button" className="attachment-chip attachment-chip--lead" onClick={() => setShowAttachment(true)}>
+                          <button type="button" className="attachment-chip attachment-chip--lead" onClick={() => setShowAttachment(needsReading ? "track" : "view")}>
                             <Paperclip size={14} aria-hidden="true" />
                             <span className="truncate">{campaign.attachmentFilename}</span>
                             <Eye size={14} aria-hidden="true" />
@@ -294,7 +307,16 @@ function StudentCampaignPage() {
       )}
 
       {showAttachment && campaign && (
-        <LessonReader campaign={campaign} onClose={() => setShowAttachment(false)} onFinished={handleLessonRead} onPlay={handlePlay} />
+        <AttachmentPreviewModal
+          campaign={campaign}
+          onClose={closeLesson}
+          unlocked={!!campaign.readByMe}
+          onPlay={() => {
+            setShowAttachment(false);
+            handlePlay();
+          }}
+          onProgress={showAttachment === "track" ? (fraction) => reading.report(campaign, fraction) : undefined}
+        />
       )}
     </div>
   );
